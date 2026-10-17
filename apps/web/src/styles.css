@@ -79,6 +79,25 @@ b { font-weight: 700; }
 .tb-item { padding: 3px 8px; background: rgba(255,255,255,.06); border-radius: 999px; white-space: nowrap; }
 .tb-item b { color: var(--ink); }
 .tb-code b { color: var(--gold); letter-spacing: .12em; }
+/* 可以点开的顶栏项（主：亮主记录；底：庄家看扣的底）：描金边和小三角，和普通信息区分开 */
+.tb-click { font: inherit; color: inherit; border: 1px solid rgba(243,210,130,.55); cursor: pointer; display: inline-flex; align-items: center; gap: 3px; }
+.tb-click:active { transform: translateY(1px); }
+.tb-click .tb-caret { color: var(--gold); font-size: .8em; }
+.tb-click .tb-count { background: var(--gold); color: var(--gold-ink); border-radius: 999px; font-size: .75em; font-weight: 800; min-width: 1.4em; padding: 0 4px; text-align: center; line-height: 1.4; }
+/* 亮主记录 */
+.decl-log { margin: 0; padding-left: 1.6em; display: flex; flex-direction: column; gap: 4px; }
+.decl-log li { padding-left: 2px; }
+.decl-log li > * { vertical-align: middle; }
+.decl-log .card-row { display: inline-flex; margin: 0 6px; }
+.decl-log .card.small { --w: 32px; width: 32px; height: 45px; }
+.decl-log .card.small .corner .rank { font-size: 12px; }
+.decl-log .card.small .corner .suit { font-size: 10px; }
+.decl-log .card-row.small .card:not(:last-child) { margin-right: -12px; }
+.decl-log .dl-who { font-weight: 700; margin-right: 6px; }
+.decl-log .dl-kind { font-size: 12px; padding: 1px 7px; border-radius: 999px; background: rgba(255,255,255,.1); }
+.decl-log .dl-kind.override { background: var(--red); color: #fff; }
+.decl-log .dl-kind.reinforce { background: rgba(243,210,130,.25); color: var(--gold); }
+.decl-log .dl-suit { color: var(--ink-2); }
 .tb-btn { margin-left: auto; background: transparent; border: 0; font-size: 16px; padding: 2px 6px; }
 /* 菜单按钮：金色实心胶囊，在深绿顶栏上一眼能看到 */
 .tb-menu { margin-left: 4px; background: var(--gold); color: var(--gold-ink); border: 0; border-radius: 999px; padding: 6px 14px; font-size: 15px; font-weight: 800; min-height: 32px; line-height: 1.2; white-space: nowrap; box-shadow: 0 1px 0 rgba(0,0,0,.35), 0 0 0 1px rgba(0,0,0,.15) inset; }

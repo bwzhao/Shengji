@@ -85,6 +85,7 @@ function startDealing(s: GameState, firstSeat: Seat): GameState {
     trumpSuit: null,
     trumpDecided: false,
     declaration: null,
+    declarationLog: [],
     deck,
     hands: Array.from({ length: n }, () => []),
     bottom: [],
@@ -206,9 +207,11 @@ function declare(s: GameState, seat: Seat, ids: readonly string[]): ApplyResult 
   const first = cards[0] as Card;
   const suit: Suit | null = first.suit === 'J' ? null : (first.suit as Suit);
   const count = cards.length;
+  const kind = !s.declaration ? 'declare' : s.declaration.seat === seat ? 'reinforce' : 'override';
   const next: GameState = {
     ...s,
     declaration: { seat, cards, suit, count },
+    declarationLog: [...(s.declarationLog ?? []), { kind, seat, cards, suit }],
     trumpSuit: suit,
     trumpDecided: true,
     // 首局谁最终抢到主谁坐庄：被反主则庄家随之改变；非首局庄家已定，反主只改主花色
@@ -230,7 +233,7 @@ function closeDeclaring(s: GameState): ApplyResult {
     }
     const flipped = [...s.bottom].reverse().find((c) => c.suit !== 'J');
     const trumpSuit = flipped ? (flipped.suit as Suit) : null;
-    next = { ...s, trumpSuit, trumpDecided: true };
+    next = { ...s, trumpSuit, trumpDecided: true, declarationLog: [...(s.declarationLog ?? []), { kind: 'bottom', card: flipped ?? null, suit: trumpSuit }] };
     events.push({ type: 'declaringClosed', trumpSuit, byBottom: true });
   } else {
     events.push({ type: 'declaringClosed', trumpSuit: s.trumpSuit, byBottom: false });

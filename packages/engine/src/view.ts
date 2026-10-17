@@ -3,7 +3,7 @@ import { cardPoints, type Card, type Suit } from './cards.ts';
 import type { GameConfig } from './config.ts';
 import type { LevelIndex } from './levels.ts';
 import { currentTurn, dealerTeam } from './reducer.ts';
-import type { Declaration, FriendCall, GameState, Phase, RoundResult, Seat, Trick, TrickRecord } from './state.ts';
+import type { Declaration, DeclarationRecord, FriendCall, GameState, Phase, RoundResult, Seat, Trick, TrickRecord } from './state.ts';
 import { sortCards, suitDisplayOrder } from './trump.ts';
 
 export interface PlayerView {
@@ -17,10 +17,12 @@ export interface PlayerView {
   readonly trumpSuit: Suit | null;
   readonly trumpDecided: boolean;
   readonly declaration: Declaration | null;
+  /** 本局亮主、加固、反主、翻底的全部记录（都是公开信息） */
+  readonly declarationLog: readonly DeclarationRecord[];
   readonly hand: readonly Card[];
   readonly handCounts: readonly number[];
   readonly bottomCount: number;
-  /** 只有庄家在扣底阶段、以及结算时所有人能看到 */
+  /** 庄家从扣底起一直能看到（扣底阶段是还没扣的空底，之后是自己扣下的牌）；结算时所有人能看到 */
   readonly bottom: readonly Card[] | null;
   readonly deckRemaining: number;
   readonly friendCalls: readonly FriendCall[];
@@ -69,7 +71,8 @@ export function viewFor(s: GameState, seat: Seat): PlayerView {
     const target = opponentSet.has(t.winner) ? opponentPointCards : pendingPointCards;
     for (const p of t.plays) for (const c of p.cards) if (cardPoints(c) > 0) target.push(c);
   }
-  const showBottom = (s.phase === 'bottom' && seat === s.dealer) || s.phase === 'roundEnd' || s.phase === 'gameOver';
+  const dealerSees = seat === s.dealer && (s.phase === 'bottom' || s.phase === 'callFriend' || s.phase === 'playing');
+  const showBottom = dealerSees || s.phase === 'roundEnd' || s.phase === 'gameOver';
   return {
     seat,
     config: s.config,
@@ -81,6 +84,7 @@ export function viewFor(s: GameState, seat: Seat): PlayerView {
     trumpSuit: s.trumpSuit,
     trumpDecided: s.trumpDecided,
     declaration: s.declaration,
+    declarationLog: s.declarationLog ?? [],
     hand: sortCards(s.hands[seat] ?? [], { level: s.level, trumpSuit: s.trumpSuit }),
     handCounts: s.hands.map((h) => h.length),
     bottomCount: s.bottom.length,

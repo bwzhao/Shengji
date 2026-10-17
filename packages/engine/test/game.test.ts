@@ -148,6 +148,48 @@ describe('整局流程', () => {
   });
 });
 
+describe('亮主记录和庄家看底', () => {
+  it('记下亮主、加固、反主，所有人看到同样的记录，重发后清空', () => {
+    let found = false;
+    for (let k = 0; k < 200 && !found; k++) {
+      let s = dealAll(createGame(defaultConfig(5), `log-${k}`));
+      const pairOf = (h: readonly { id: string; suit: string; rank: number }[]) =>
+        h.filter((c) => c.rank === 5).find((c, _, all) => all.filter((d) => d.suit === c.suit).length >= 2);
+      const a = s.hands.findIndex((h) => pairOf(h));
+      const b = s.hands.findIndex((h, i) => i !== a && h.filter((c) => c.suit === 'J').length >= 3);
+      if (a < 0 || b < 0) continue;
+      found = true;
+      const p = pairOf(s.hands[a]!)!;
+      const pair = s.hands[a]!.filter((c) => c.rank === 5 && c.suit === p.suit).slice(0, 2);
+      const jokers = s.hands[b]!.filter((c) => c.suit === 'J').slice(0, 3);
+      s = must(applyAction(s, { type: 'declare', seat: a, cards: [pair[0]!.id] }));
+      s = must(applyAction(s, { type: 'declare', seat: a, cards: pair.map((c) => c.id) }));
+      s = must(applyAction(s, { type: 'declare', seat: b, cards: jokers.map((c) => c.id) }));
+      const log = viewFor(s, (b + 1) % 5).declarationLog;
+      expect(log.map((e) => e.kind)).toEqual(['declare', 'reinforce', 'override']);
+      expect(log.map((e) => (e.kind === 'bottom' ? -1 : e.seat))).toEqual([a, a, b]);
+      expect(log[1]!.kind !== 'bottom' && log[1]!.cards.length).toBe(2);
+      expect(log[2]!.suit).toBeNull();
+      expect(viewFor(s, a).declarationLog).toEqual(log);
+      expect(restartRound(s).state.declarationLog).toEqual([]);
+    }
+    expect(found).toBe(true);
+  });
+
+  it('非首局翻底定主也记下来；庄家扣底后一直能看到自己扣的底，别人看不到', () => {
+    let s = dealAll(createGame(defaultConfig(5), 'flip'));
+    s = { ...s, round: 2, dealer: 0 };
+    const flipped = [...s.bottom].reverse().find((c) => c.suit !== 'J')!;
+    s = must(applyAction(s, { type: 'closeDeclaring' }));
+    expect(s.declarationLog).toEqual([{ kind: 'bottom', card: flipped, suit: flipped.suit }]);
+    const buried = s.hands[0]!.slice(0, 7);
+    s = must(applyAction(s, { type: 'exchangeBottom', seat: 0, cards: buried.map((c) => c.id) }));
+    expect(s.phase).toBe('callFriend');
+    expect(viewFor(s, 0).bottom?.map((c) => c.id)).toEqual(buried.map((c) => c.id));
+    expect(viewFor(s, 1).bottom).toBeNull();
+  });
+});
+
 describe('重发本局', () => {
   it('首局重发：庄家清空，牌重新洗过', () => {
     let s = dealAll(createGame(defaultConfig(6), 'restart'));
@@ -213,8 +255,9 @@ describe('随机对局', () => {
         for (let seat = 0; seat < 6; seat++) {
           const v = viewFor(s, seat);
           expect(v.hand.length).toBe(s.hands[seat]!.length);
-          if (s.phase === 'bottom' && seat !== s.dealer) expect(v.bottom).toBeNull();
-          if (s.phase === 'playing') expect(v.bottom).toBeNull();
+          // 扣底起只有庄家能看到底牌，结算前别人都看不到
+          if ((s.phase === 'bottom' || s.phase === 'callFriend' || s.phase === 'playing') && seat !== s.dealer) expect(v.bottom).toBeNull();
+          if (s.phase === 'playing' && seat === s.dealer) expect(v.bottom).toEqual(s.bottom);
         }
       },
     });

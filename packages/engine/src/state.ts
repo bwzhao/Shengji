@@ -17,6 +17,14 @@ export interface Declaration {
   readonly count: number;
 }
 
+/**
+ * 本局亮主记录的一条。declare：第一个亮主；reinforce：自己加固；override：反主；
+ * bottom：非首局无人亮主，翻底定主（card 是决定主花色的那张，底牌全是王时为 null，打无主）
+ */
+export type DeclarationRecord =
+  | { readonly kind: 'declare' | 'reinforce' | 'override'; readonly seat: Seat; readonly cards: readonly Card[]; readonly suit: Suit | null }
+  | { readonly kind: 'bottom'; readonly card: Card | null; readonly suit: Suit | null };
+
 export interface FriendCallSpec {
   readonly suit: Suit;
   readonly rank: number;
@@ -78,6 +86,8 @@ export interface GameState {
   readonly trumpSuit: Suit | null;
   readonly trumpDecided: boolean;
   readonly declaration: Declaration | null;
+  /** 本局的亮主、加固、反主、翻底记录，按时间先后。旧存档里没有 */
+  readonly declarationLog?: readonly DeclarationRecord[];
   readonly deck: readonly Card[];
   readonly hands: readonly (readonly Card[])[];
   readonly bottom: readonly Card[];
