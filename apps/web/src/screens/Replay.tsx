@@ -1,8 +1,10 @@
 /** 一局回放：按墩列出每个人出的牌、赢家和分数，并可展开各人起手牌。 */
 import { useMemo, useState } from 'react';
-import { applyAction, rankName, sortCardsDesc, suitName, type Card, type GameState, type Seat } from '@shengji/engine';
+import { applyAction, rankName, sortCardsDesc, type Card, type GameState, type Seat } from '@shengji/engine';
 import type { RoundReplay } from '@shengji/protocol';
+import { Modal } from '../components/Modal.tsx';
 import { CardRow } from '../components/CardView.tsx';
+import { CardNotation, TrumpLabel } from '../components/SuitText.tsx';
 
 interface TrickView {
   readonly no: number;
@@ -74,15 +76,10 @@ export function Replay({ replay, onClose }: { replay: RoundReplay; onClose: () =
   const roleCls = (seat: Seat) => (seat === st.dealer ? 'dealer' : team.includes(seat) ? 'friend' : 'opp');
   const roleTxt = (seat: Seat) => (seat === st.dealer ? '庄' : team.includes(seat) ? '友' : '闲');
   return (
-    <div className="overlay replay">
-      <div className="sheet">
-        <div className="sheet-head">
-          <div className="sheet-title">第 {replay.round} 局回放</div>
-          <button className="ghost small" onClick={onClose}>关闭</button>
-        </div>
+    <Modal title={`第 ${replay.round} 局回放`} onClose={onClose} className="replay">
         <div className="hint">
-          级牌 {rankName(st.level)} · 主 {suitName(st.trumpSuit)} · 庄家 {st.dealer === null ? '—' : name(st.dealer)}
-          {st.friendCalls.length > 0 && ` · 朋友牌 ${st.friendCalls.map((c) => `第${['一', '二', '三'][c.nth - 1]}张${suitName(c.suit)}${rankName(c.rank)}`).join('、')}`}
+          级牌 {rankName(built.ctx.level)} · 主 <TrumpLabel suit={built.ctx.trumpSuit} /> · 庄家 {st.dealer === null ? '—' : name(st.dealer)}
+          {st.friendCalls.length > 0 && <> · 朋友牌 {st.friendCalls.map((c, i) => <span key={`${c.suit}${c.rank}#${c.nth}`}>{i > 0 && '、'}第{['一', '二', '三'][c.nth - 1]}张 <CardNotation suit={c.suit} rank={c.rank} /></span>)}</>}
         </div>
         {built.error && <div className="hint warn">回放中断：{built.error}</div>}
         <button className="ghost small" onClick={() => setShowHands((v) => !v)}>{showHands ? '收起起手牌' : '查看各人起手牌'}</button>
@@ -122,7 +119,6 @@ export function Replay({ replay, onClose }: { replay: RoundReplay; onClose: () =
             </div>
           ))}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

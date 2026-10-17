@@ -20,9 +20,9 @@ export default defineConfig({
         lang: 'zh-CN',
         start_url: '/',
         display: 'standalone',
-        orientation: 'landscape',
-        background_color: '#1b3a2d',
-        theme_color: '#1b3a2d',
+        orientation: 'any',
+        background_color: '#152b24',
+        theme_color: '#152b24',
         icons: [
           { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },

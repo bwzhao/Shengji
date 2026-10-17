@@ -1,11 +1,11 @@
 import type { Card } from '@shengji/engine';
 
-const GLYPH: Record<string, string> = { S: '♠', H: '♥', D: '♦', C: '♣' };
+import { SUIT_GLYPH, SUIT_NAME } from './SuitText.tsx';
 const RANK: Record<number, string> = { 11: 'J', 12: 'Q', 13: 'K', 14: 'A' };
 
 export function cardLabel(card: Card): string {
   if (card.suit === 'J') return card.rank === 16 ? '大王' : '小王';
-  return `${GLYPH[card.suit]}${RANK[card.rank] ?? card.rank}`;
+  return `${SUIT_NAME[card.suit]} ${RANK[card.rank] ?? card.rank}`;
 }
 
 export function CardView({ card, selected, onClick, small, dim, className, style }: {
@@ -14,7 +14,7 @@ export function CardView({ card, selected, onClick, small, dim, className, style
   const joker = card.suit === 'J';
   const red = card.suit === 'H' || card.suit === 'D' || card.rank === 16;
   const rank = joker ? (card.rank === 16 ? '大王' : '小王') : (RANK[card.rank] ?? String(card.rank));
-  const pip = joker ? '★' : GLYPH[card.suit];
+  const pip = joker ? '★' : SUIT_GLYPH[card.suit];
   const cls = ['card', red ? 'red' : 'black', selected ? 'selected' : '', small ? 'small' : '', dim ? 'dim' : '', joker ? 'joker' : '', className ?? '']
     .filter(Boolean).join(' ');
   return (

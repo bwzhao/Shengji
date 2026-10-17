@@ -1,9 +1,10 @@
 import { levelRank, rankName, sortCardsDesc, type PlayerView } from '@shengji/engine';
 import type { RoomInfo } from '@shengji/protocol';
+import { Modal } from './Modal.tsx';
 import { CardRow } from './CardView.tsx';
 
-export function RoundEnd({ view, room, onNext, onReplay, onLeave, onLobby }: {
-  view: PlayerView; room: RoomInfo; onNext: () => void; onReplay: () => void;
+export function RoundEnd({ view, room, connected = true, onNext, onReplay, onLeave, onLobby }: {
+  view: PlayerView; room: RoomInfo; connected?: boolean; onNext: () => void; onReplay: () => void;
   /** 退出房间 */
   onLeave: () => void;
   /** 房主：回大厅，座位保留，等级归零，可以再开一局 */
@@ -14,9 +15,7 @@ export function RoundEnd({ view, room, onNext, onReplay, onLeave, onLobby }: {
   const gameOver = view.phase === 'gameOver';
   const iWon = (r.dealerHeld ? r.dealerTeam : r.opponents).includes(view.seat);
   return (
-    <div className="overlay">
-      <div className="sheet">
-        <div className="sheet-title">{gameOver ? '游戏结束' : `第 ${r.round} 局结算`}</div>
+    <Modal title={gameOver ? '游戏结束' : `第 ${r.round} 局结算`}>
         <div className={`result-line ${iWon ? 'win' : ''}`}>
           {r.dealerHeld ? (r.opponentPoints === 0 ? '大光！闲家一分没得' : '庄家阵营守住了') : '闲家上台'}
           {!gameOver && (r.levelsUp > 0 ? `，${r.dealerHeld ? '庄家阵营' : '闲家阵营'}升 ${r.levelsUp} 级` : '，不升级')}
@@ -28,7 +27,7 @@ export function RoundEnd({ view, room, onNext, onReplay, onLeave, onLobby }: {
             <tr><td>闲家</td><td>{r.opponents.map(name).join('、')}</td></tr>
             <tr><td>闲家抓分</td><td>{r.capturedByOpponents}</td></tr>
             <tr><td>抠底</td><td>{r.bottomBonus > 0 ? `${r.bottomPoints} × ${r.bottomMultiplier} = ${r.bottomBonus}` : '无'}</td></tr>
-            {r.penaltyDelta !== 0 && <tr><td>甩牌罚分</td><td>{r.penaltyDelta > 0 ? '+' : ''}{r.penaltyDelta}</td></tr>}
+            {(r.penaltyDelta !== 0 || (r.round === view.round && view.penalties.some(p => p > 0))) && <tr><td>甩牌罚分</td><td>{r.penaltyDelta > 0 ? '+' : ''}{r.penaltyDelta}</td></tr>}
             <tr><td><b>闲家总分</b></td><td><b>{r.opponentPoints}</b></td></tr>
           </tbody>
         </table>
@@ -56,11 +55,11 @@ export function RoundEnd({ view, room, onNext, onReplay, onLeave, onLobby }: {
           <div className="hint">下一局庄家：{name(r.nextDealer)}</div>
         )}
         <div className="sheet-actions">
-          <button className="ghost" onClick={onReplay}>回放本局</button>
+          <button className="ghost" disabled={!connected} onClick={onReplay}>回放本局</button>
           {gameOver ? (
             <>
               <button className="ghost danger" onClick={onLeave}>退出</button>
-              {room.youAreHost ? <button className="primary" onClick={onLobby}>回到大厅</button> : <div className="hint">等房主回到大厅再开一局，或直接退出</div>}
+              {room.youAreHost ? <button className="primary" disabled={!connected} onClick={onLobby}>回到大厅</button> : <div className="hint">等房主回到大厅再开一局，或直接退出</div>}
             </>
           ) : (
             <>
@@ -70,11 +69,10 @@ export function RoundEnd({ view, room, onNext, onReplay, onLeave, onLobby }: {
                   if (confirm(`退出本局？你的座位由机器人接管${room.youAreHost ? '，房主交给下一位真人' : ''}。之后用房间码 ${room.code} 重新进入可以接回机器人的座位。`)) onLeave();
                 }}
               >退出本局</button>
-              {room.youAreHost ? <button className="primary" onClick={onNext}>下一局</button> : <div className="hint">等待房主开始下一局</div>}
+              {room.youAreHost ? <button className="primary" disabled={!connected} onClick={onNext}>下一局</button> : <div className="hint">等待房主开始下一局</div>}
             </>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
