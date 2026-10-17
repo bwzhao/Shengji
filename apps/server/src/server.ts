@@ -97,6 +97,7 @@ wss.on('connection', (ws: AliveSocket) => {
       return;
     }
 
+    if (!token && msg.t === 'ping') return send(ws, { t: 'pong' });
     if (!token) return send(ws, { t: 'error', code: 'NO_SESSION', message: '请先发送 hello' });
     const session = registry.sessions.get(token);
     if (!session) return send(ws, { t: 'error', code: 'NO_SESSION', message: '会话已失效，请刷新' });
@@ -180,7 +181,7 @@ wss.on('connection', (ws: AliveSocket) => {
   });
 
   ws.on('close', () => {
-    if (token) room()?.detach(token);
+    if (token) room()?.detach(token, ws);
   });
 });
 
