@@ -47,7 +47,7 @@ export function Home({ client }: { client: GameClient }) {
           <button className={players === 5 ? 'on' : ''} onClick={() => setPlayers(5)}>5 人 · 1 个朋友</button>
           <button className={players === 6 ? 'on' : ''} onClick={() => setPlayers(6)}>6 人 · 2 个朋友</button>
         </div>
-        <div className="hint">{players === 4 ? '两副牌，每人 25 张，底牌 8 张，40 分一级、80 分下庄，对家固定一队。从 2 打到 A，5、10、K 必打，在 A 上坐庄守住才赢。' : '三副牌，找朋友：庄家扣底后叫朋友牌，谁打出谁就是自己人。'}</div>
+        <div className="hint">{players === 4 ? '两副牌，每人 25 张，底牌 8 张，40 分一级、80 分下庄，对家固定一队。从 2 打到 A，5、10、K 必打且庄上过（停在这几级时要坐庄守住才能往上升），在 A 上坐庄守住才赢。' : '三副牌，找朋友：庄家扣底后叫朋友牌，谁打出谁就是自己人。'}</div>
         <button className="primary" disabled={!ready} onClick={() => { ensureName(); setTimeout(() => client.send({ t: 'createRoom', players }), 50); }}>
           创建房间
         </button>

@@ -12,14 +12,25 @@ export function RoundEnd({ view, room, onNext, onReplay, onLeave, onLobby }: {
   const r = view.lastRound!;
   const name = (seat: number) => room.seats[seat]?.name ?? `${seat + 1} 号`;
   const gameOver = view.phase === 'gameOver';
-  const iWon = (r.dealerHeld ? r.dealerTeam : r.opponents).includes(view.seat);
+  const winners = r.dealerHeld ? r.dealerTeam : r.opponents;
+  const iWon = winners.includes(view.seat);
+  // 实际升了几级：四人升级 5、10、K 必打且庄上过，到 A 为止，可能比按分数算的少
+  const gainOf = (i: number) => (r.levelsAfter[i] ?? 0) - (r.levelsBefore[i] ?? 0);
+  const w = winners.reduce((a, b) => (gainOf(b) > gainOf(a) ? b : a));
+  const gained = gainOf(w);
+  const reached = rankName(levelRank(r.levelsAfter[w] ?? 0, view.config));
+  const side = r.dealerHeld ? '庄家阵营' : '闲家阵营';
+  const levelText = r.levelsUp === 0 ? '，不升级'
+    : gained >= r.levelsUp ? `，${side}升 ${r.levelsUp} 级`
+    : gained > 0 ? `，${side}升到 ${reached}（${reached} 必打）`
+    : `，${side}停在 ${reached}（要坐庄守住才能过）`;
   return (
     <div className="overlay">
       <div className="sheet">
         <div className="sheet-title">{gameOver ? '游戏结束' : `第 ${r.round} 局结算`}</div>
         <div className={`result-line ${iWon ? 'win' : ''}`}>
           {r.dealerHeld ? (r.opponentPoints === 0 ? '大光！闲家一分没得' : '庄家阵营守住了') : '闲家上台'}
-          {!gameOver && (r.levelsUp > 0 ? `，${r.dealerHeld ? '庄家阵营' : '闲家阵营'}升 ${r.levelsUp} 级` : '，不升级')}
+          {!gameOver && levelText}
           {iWon ? '，你这边赢了' : ''}
         </div>
         <table className="result-table">

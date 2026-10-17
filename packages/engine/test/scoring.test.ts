@@ -55,9 +55,27 @@ describe('四人升级的等级阶梯', () => {
     expect(up(12, 3)).toBe(13);
     expect(up(13, 1)).toBe(14);
   });
+  it('5、10、K 要庄上过：闲家上台停在这三级不动', () => {
+    const opp = (from: number, steps: number) => levelRank(advanceLevel(idx(from), steps, cfg, false), cfg);
+    expect(opp(5, 1)).toBe(5);
+    expect(opp(10, 3)).toBe(10);
+    expect(opp(13, 2)).toBe(13);
+    // 闲家上台也不能越过必停的级别
+    expect(opp(4, 2)).toBe(5);
+    expect(opp(8, 3)).toBe(10);
+    expect(opp(12, 1)).toBe(13);
+    // 不在必停级别上照常升级
+    expect(opp(6, 2)).toBe(8);
+    // 坐庄守住才能升过去
+    expect(up(5, 1)).toBe(6);
+    expect(up(10, 1)).toBe(11);
+    expect(up(13, 1)).toBe(14);
+  });
   it('找朋友的阶梯不变', () => {
     const f = defaultConfig(6);
     expect(levelRank(advanceLevel(0, 2, f), f)).toBe(13);
     expect(levelRank(advanceLevel(2, 2, f), f)).toBe(3);
+    // 找朋友没有必停的级别，闲家上台照常升级
+    expect(levelRank(advanceLevel(0, 2, f, false), f)).toBe(13);
   });
 });

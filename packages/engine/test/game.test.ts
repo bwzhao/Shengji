@@ -460,3 +460,34 @@ describe('四人升级：在庄上打过 A 才赢', () => {
     expect(finished).toBeGreaterThan(0);
   }, 120_000);
 });
+
+describe('四人升级：5、10、K 必打且庄上过', () => {
+  it('整局里没人越过 5、10、K，闲家上台时停在这三级的不升级', () => {
+    const cfg = defaultConfig(4);
+    const seq = cfg.levelSequence as readonly number[];
+    const stops = cfg.levelStops as readonly number[];
+    let blocked = 0;
+    let passed = 0;
+    for (let g = 0; g < 6; g++) {
+      simulateGame(cfg, `p4-stops-${g}`, {
+        onEvent: (e) => {
+          if (e.type !== 'roundScored') return;
+          const r = e.result;
+          const winners = r.dealerHeld ? r.dealerTeam : r.opponents;
+          for (const w of winners) {
+            const before = r.levelsBefore[w] as number;
+            const after = r.levelsAfter[w] as number;
+            // 途中不能越过必停的级别
+            for (let k = before + 1; k < after; k++) expect(stops).not.toContain(seq[k]);
+            if (!stops.includes(seq[before] as number) || r.levelsUp === 0) continue;
+            if (r.dealerHeld) { expect(after).toBeGreaterThan(before); passed++; }
+            else { expect(after).toBe(before); blocked++; }
+          }
+        },
+      });
+    }
+    // 两种情况都要真的出现过，测试才有意义
+    expect(blocked).toBeGreaterThan(0);
+    expect(passed).toBeGreaterThan(0);
+  }, 120_000);
+});
