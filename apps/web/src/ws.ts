@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { GameEvent, PlayerView } from '@shengji/engine';
 import type { ClientMessage, RoomInfo, RoomSummary, RoundReplay, ServerMessage } from '@shengji/protocol';
 import { checkForUpdate } from './pwa.ts';
+import { connectSocket } from './connection.ts';
 
 export interface Toast {
   readonly id: number;
@@ -45,7 +46,7 @@ export function useGameClient(): GameClient {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [replay, setReplay] = useState<RoundReplay | null>(null);
   const [rooms, setRooms] = useState<readonly RoomSummary[] | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
+  const connectionRef = useRef<ReturnType<typeof connectSocket> | null>(null);
   const nameRef = useRef(name);
   const toastId = useRef(0);
 
@@ -56,22 +57,21 @@ export function useGameClient(): GameClient {
   };
 
   useEffect(() => {
-    let closed = false;
-    let retry = 500;
-    const connect = () => {
-      const ws = new WebSocket(wsUrl());
-      wsRef.current = ws;
-      ws.onopen = () => {
-        retry = 500;
-        setConnected(true);
+    const connection = connectSocket({
+      url: wsUrl,
+      onConnected: setConnected,
+      onOpen: () => {
         if (nameRef.current) {
           const token = localStorage.getItem(TOKEN_KEY) ?? undefined;
-          ws.send(JSON.stringify({ t: 'hello', name: nameRef.current, token }));
-          if (localStorage.getItem(PENDING_LEAVE_KEY)) ws.send(JSON.stringify({ t: 'leaveRoom' }));
+          connection.send(JSON.stringify({ t: 'hello', name: nameRef.current, token }));
+          if (localStorage.getItem(PENDING_LEAVE_KEY)) connection.send(JSON.stringify({ t: 'leaveRoom' }));
+        } else {
+          // Keep the unnamed login screen alive too; ping needs no session.
+          connection.send(JSON.stringify({ t: 'ping' }));
         }
-      };
-      ws.onmessage = (ev) => {
-        const msg = JSON.parse(String(ev.data)) as ServerMessage;
+      },
+      onMessage: (data) => {
+        const msg = JSON.parse(data) as ServerMessage;
         switch (msg.t) {
           case 'welcome': localStorage.setItem(TOKEN_KEY, msg.token); void checkForUpdate(); break;
           case 'room':
@@ -91,31 +91,20 @@ export function useGameClient(): GameClient {
           case 'rooms': setRooms(msg.rooms); break;
           case 'pong': break;
         }
-      };
-      ws.onclose = () => {
-        setConnected(false);
-        if (closed) return;
-        setTimeout(connect, retry);
-        retry = Math.min(retry * 2, 8000);
-      };
-    };
-    connect();
-    const ping = setInterval(() => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ t: 'ping' }));
-    }, 20000);
-    return () => { closed = true; clearInterval(ping); wsRef.current?.close(); };
+      },
+    });
+    connectionRef.current = connection;
+    return () => { connectionRef.current = null; connection.stop(); };
   }, []);
 
   const send = (msg: ClientMessage) => {
-    const ws = wsRef.current;
     if (msg.t === 'leaveRoom') {
       // 退出本地立即生效；断线时记下来，重连后补发
       localStorage.setItem(PENDING_LEAVE_KEY, '1');
       setRoom(null);
       setView(null);
     }
-    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
-    else if (msg.t !== 'leaveRoom') pushToast('error', '还没连上服务器');
+    if (!connectionRef.current?.send(JSON.stringify(msg)) && msg.t !== 'leaveRoom') pushToast('error', '还没连上服务器');
   };
 
   const setName = (n: string) => {
@@ -123,9 +112,9 @@ export function useGameClient(): GameClient {
     nameRef.current = trimmed;
     setNameState(trimmed);
     localStorage.setItem(NAME_KEY, trimmed);
-    if (trimmed && wsRef.current?.readyState === WebSocket.OPEN) {
+    if (trimmed) {
       const token = localStorage.getItem(TOKEN_KEY) ?? undefined;
-      wsRef.current.send(JSON.stringify({ t: 'hello', name: trimmed, token }));
+      connectionRef.current?.send(JSON.stringify({ t: 'hello', name: trimmed, token }));
     }
   };
 

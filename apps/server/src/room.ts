@@ -245,9 +245,11 @@ export class Room {
     if (socket && this.state && this.seatOf(token) !== null) this.armTimers();
   }
 
-  detach(token: string): void {
+  detach(token: string, socket: WebSocket): void {
     const m = this.members.get(token);
-    if (m) m.socket = null;
+    // A previous connection may close after hello has already attached its replacement.
+    if (!m || m.socket !== socket) return;
+    m.socket = null;
     if (!this.started && this.seatOf(token) !== null) {
       // 游戏未开始时掉线直接让座
       const seat = this.seatOf(token) as Seat;
