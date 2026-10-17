@@ -1,6 +1,7 @@
 /**
  * 等级阶梯。找朋友（五六人）：5 → 10 → K → 2 → 3 → 4 → 6 → 7 → 8 → 9 → J → Q → A。
- * 四人升级：2 → 3 → … → K → A，升级时不能越过 5、10、K（例如打 4 升两级只能到 5）。
+ * 四人升级：2 → 3 → … → K → A，升级时不能越过 5、10、K（例如打 4 升两级只能到 5），
+ * 而且这三级要庄上过：停在这一级时只有坐庄守住才能往上升，闲家上台只上庄、不升级。
  * 等级用阶梯下标表示；阶梯和必停的级别放在 GameConfig 里，旧存档里没有这两项时按找朋友的阶梯算。
  */
 import type { GameConfig } from './config.ts';
@@ -27,11 +28,15 @@ export function levelRank(idx: LevelIndex, cfg?: LadderConfig): number {
   return r;
 }
 
-/** 升 steps 级；到 A 为止；途中遇到必停的级别就停在那里 */
-export function advanceLevel(idx: LevelIndex, steps: number, cfg?: LadderConfig): LevelIndex {
+/**
+ * 升 steps 级；到 A 为止；途中遇到必停的级别就停在那里。
+ * 必停的级别要庄上过：heldAsDealer 为 false（闲家上台）时，停在必停级别上的一方不动。
+ */
+export function advanceLevel(idx: LevelIndex, steps: number, cfg?: LadderConfig, heldAsDealer = true): LevelIndex {
   const seq = sequenceOf(cfg);
   const target = Math.min(seq.length - 1, idx + Math.max(0, steps));
   const stops = cfg?.levelStops ?? [];
+  if (!heldAsDealer && stops.includes(seq[idx] as number)) return idx;
   for (let k = idx + 1; k < target; k++) if (stops.includes(seq[k] as number)) return k;
   return target;
 }

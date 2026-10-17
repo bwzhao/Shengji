@@ -396,7 +396,8 @@ function endRound(s: GameState, lastWinner: Seat, lastLead: Decomposition, event
   const levelsBefore = [...s.levels];
   let levels = [...s.levels];
   if (!gameOver) {
-    for (const w of winnersTeam) levels[w] = advanceLevel(levels[w] as number, levelsUp, s.config);
+    // 5、10、K 要庄上过：闲家上台时停在这几级的人只上庄、不升级
+    for (const w of winnersTeam) levels[w] = advanceLevel(levels[w] as number, levelsUp, s.config, dealerHeld);
   }
 
   let nextDealer = dealer;
