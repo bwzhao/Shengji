@@ -84,7 +84,7 @@ export class Room {
     const room = new Room(snap.code, snap.players, snap.hostToken, opts);
     snap.seats.forEach((s, i) => { room.seats[i] = s ? { token: s.token, isBot: s.isBot, name: s.name } : null; });
     for (const m of snap.members) room.members.set(m.token, { token: m.token, name: m.name, socket: null });
-    room.state = snap.state ? migrateLadder(snap.state) : snap.state;
+    room.state = snap.state ? migrateDealerRule(migrateLadder(snap.state)) : snap.state;
     room.seq = snap.seq;
     room.lastActivity = snap.lastActivity;
     room.roundLogs = [...(snap.roundLogs ?? [])];
@@ -575,6 +575,12 @@ const hiddenCard = { id: 'hidden', suit: 'J' as const, rank: 0, deck: 0 };
  * 旧存档里的四人局还在用找朋友的等级阶梯（5、10、K、2…），等级存的是旧阶梯的下标。
  * 换成四人升级的新阶梯（2 → A，必停 5、10、K），按点数把每个人的等级换成新下标，显示的级别不变。
  */
+/** 旧存档里的五人局没有连庄规则：补上（第 16 条）。已算好的下一局庄家不改 */
+export function migrateDealerRule(state: GameState): GameState {
+  if (state.config.players !== 5 || state.config.mode !== 'friends' || state.config.dealerKeepsOnHold !== undefined) return state;
+  return { ...state, config: { ...state.config, dealerKeepsOnHold: true } };
+}
+
 export function migrateLadder(state: GameState): GameState {
   if (state.config.mode !== 'partners' || state.config.levelSequence) return state;
   const fresh = defaultConfig(4);

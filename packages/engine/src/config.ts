@@ -35,6 +35,8 @@ export interface GameConfig {
   readonly levelSequence?: readonly number[];
   /** 升级时不能越过的级别（点数） */
   readonly levelStops?: readonly number[];
+  /** 庄家阵营守住时原庄家连庄（五人找朋友）；不设时交给最近的朋友 */
+  readonly dealerKeepsOnHold?: boolean;
 }
 
 export const TOTAL_POINTS_PER_DECK = 100;
@@ -75,6 +77,8 @@ export function defaultConfig(players: PlayerCount): GameConfig {
     redealIfNoDeclarerFirstRound: true,
     levelSequence: LEVEL_SEQUENCE,
     levelStops: [],
+    // 五人找朋友守住就连庄，下庄仍交给第一个闲家
+    dealerKeepsOnHold: five,
   };
 }
 

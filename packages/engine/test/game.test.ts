@@ -263,6 +263,34 @@ describe('四人对家模式', () => {
     }
   });
 
+  it('五人局守住连庄；六人局守住交给最近的朋友；下庄都交给第一个闲家', () => {
+    for (const players of [5, 6] as const) {
+      let held = 0, lost = 0;
+      for (let g = 0; g < 4; g++) {
+        simulateGame(defaultConfig(players), `keep-${players}-${g}`, {
+          maxRounds: 8,
+          onEvent: (e) => {
+            if (e.type !== 'roundScored' || e.result.gameOver) return;
+            const r = e.result;
+            const firstOf = (team: readonly number[]) => {
+              for (let k = 1; k < players; k++) if (team.includes((r.dealer + k) % players)) return (r.dealer + k) % players;
+              return r.dealer;
+            };
+            if (r.dealerHeld) {
+              expect(r.nextDealer).toBe(players === 5 ? r.dealer : firstOf(r.dealerTeam));
+              held++;
+            } else {
+              expect(r.nextDealer).toBe(firstOf(r.opponents));
+              lost++;
+            }
+          },
+        });
+      }
+      expect(held).toBeGreaterThan(0);
+      expect(lost).toBeGreaterThan(0);
+    }
+  });
+
   it('守庄换对家坐庄，下庄换下家；两人共用等级', () => {
     let checked = 0;
     simulateGame(defaultConfig(4), 'p4-dealer', {

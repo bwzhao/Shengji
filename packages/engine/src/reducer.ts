@@ -397,7 +397,7 @@ function endRound(s: GameState, lastWinner: Seat, lastLead: Decomposition, event
   }
 
   let nextDealer = dealer;
-  for (let k = 1; k < s.config.players; k++) {
+  if (!(dealerHeld && s.config.dealerKeepsOnHold)) for (let k = 1; k < s.config.players; k++) {
     const cand = (dealer + k) % s.config.players;
     if (winnersTeam.includes(cand)) { nextDealer = cand; break; }
   }
