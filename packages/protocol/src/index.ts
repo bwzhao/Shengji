@@ -87,7 +87,8 @@ export interface RoomSummary {
 export type ServerMessage =
   | { readonly t: 'welcome'; readonly token: string; readonly name: string }
   | { readonly t: 'room'; readonly room: RoomInfo | null }
-  | { readonly t: 'state'; readonly seq: number; readonly view: PlayerView; readonly events: readonly GameEvent[] }
+  /** declareLeftMs：发完牌后亮主思考时间还剩多少毫秒，只在 declaring 阶段有 */
+  | { readonly t: 'state'; readonly seq: number; readonly view: PlayerView; readonly events: readonly GameEvent[]; readonly declareLeftMs?: number }
   | { readonly t: 'error'; readonly code: string; readonly message: string }
   | { readonly t: 'replay'; readonly replay: RoundReplay }
   | { readonly t: 'rooms'; readonly rooms: readonly RoomSummary[] }
