@@ -138,6 +138,9 @@ b { font-weight: 700; }
 .status { font-size: 15px; font-weight: 600; color: var(--ink); background: rgba(0,0,0,.35); padding: 6px 14px; border-radius: 999px; backdrop-filter: blur(4px); }
 .status.flash { background: rgba(224,176,82,.9); color: var(--gold-ink); animation: pop .25s ease-out; }
 .declared { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); }
+.declare-timer { font-size: 12px; color: var(--ink-2); }
+.declare-timer b { color: var(--gold); font-size: 15px; font-variant-numeric: tabular-nums; }
+.declare-timer.urgent b { color: var(--red); }
 .declare-hints { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; pointer-events: auto; }
 .declare-btn { animation: pulse 1.4s ease-in-out infinite; }
 .hand .card.declarable { box-shadow: 0 0 0 2px var(--gold), 0 0 14px rgba(224,176,82,.55); }

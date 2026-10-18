@@ -100,7 +100,8 @@ function statusText(view: PlayerView, name: (s: Seat) => string): string {
     case 'declaring': {
       // 反主只改主花色，不改庄家：只有首局才是先亮主者坐庄
       const dealerText = view.dealer !== null ? `，${name(view.dealer)} 坐庄` : '';
-      return view.declaration ? `${name(view.declaration.seat)} 亮 ${suitName(view.trumpSuit)}为主${dealerText}` : '无人亮主，即将翻底牌';
+      if (view.declaration) return `${name(view.declaration.seat)} 亮 ${suitName(view.trumpSuit)}为主${dealerText}`;
+      return view.dealer === null ? '无人亮主，倒计时结束重新发牌' : '无人亮主，倒计时结束翻底牌定主';
     }
     case 'bottom': return view.dealer === me ? '你是庄家，选 ' + view.config.bottomSize + ' 张扣底' : `${name(view.dealer!)} 正在扣底`;
     case 'callFriend': return view.dealer === me ? '叫朋友' : `${name(view.dealer!)} 正在叫朋友`;
@@ -158,6 +159,16 @@ export function Table({ client }: { client: GameClient }) {
     window.addEventListener('resize', update);
     return () => { ro?.disconnect(); window.removeEventListener('resize', update); };
   }, []);
+  // 发完牌后的亮主倒计时：有人亮主、加固或反主时服务端重新计时
+  const declareDeadline = view.phase === 'declaring' ? client.declareDeadline : null;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (declareDeadline === null) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(id);
+  }, [declareDeadline]);
+  const declareSecs = declareDeadline === null ? null : Math.max(0, Math.ceil((declareDeadline - now) / 1000));
   const prevHandIds = useRef<Set<string>>(new Set());
   const prevTurn = useRef<boolean>(false);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -437,6 +448,9 @@ export function Table({ client }: { client: GameClient }) {
           </div>
           {view.declaration && (view.phase === 'dealing' || view.phase === 'declaring') && (
             <div className="declared"><span>{name(view.declaration.seat)} 亮</span><CardRow cards={view.declaration.cards} small /></div>
+          )}
+          {declareSecs !== null && (
+            <div className={`declare-timer ${declareSecs <= 5 ? 'urgent' : ''}`}>亮主倒计时 <b>{declareSecs}</b> 秒</div>
           )}
           {declareOpts.length > 0 && (
             <div className="declare-hints">
