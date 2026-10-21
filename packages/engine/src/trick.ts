@@ -1,7 +1,6 @@
 /** 一墩牌的胜负判定与抠底倍数。 */
 import type { Card } from './cards.ts';
 import { bestTopForShape, poolOf, shapesOf, type Decomposition, type Shape } from './combos.ts';
-import type { GameConfig } from './config.ts';
 import { commonGroup, type TrumpCtx } from './trump.ts';
 
 export interface TrickPlay {
@@ -45,11 +44,12 @@ function compareShapeForWinner(a: Shape, b: Shape): number {
   return a.length - b.length;
 }
 
-/** 抠底倍数按最后一墩首出的最高牌型。 */
-export function bottomMultiplier(lead: Decomposition, cfg: GameConfig): number {
-  const kinds = lead.components.map((c) => c.kind);
-  if (kinds.includes('tractor')) return cfg.bottomMultiplier.tractor;
-  if (kinds.includes('triple')) return cfg.bottomMultiplier.triple;
-  if (kinds.includes('pair')) return cfg.bottomMultiplier.pair;
-  return cfg.bottomMultiplier.single;
+/**
+ * 抠底倍数：2 的 n 次方，n 是最后一墩首出里最大的单一牌型的张数，上不封顶。
+ * 单张 ×2、对子 ×4、三条 ×8、两对拖拉机 ×16；甩牌按其中最大的那个牌型算。
+ */
+export function bottomMultiplier(lead: Decomposition): number {
+  let n = 1;
+  for (const c of lead.components) n = Math.max(n, c.cards.length);
+  return 2 ** n;
 }

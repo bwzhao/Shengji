@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  checkDeclaration, createRng, declarationCandidates, decompose, generateFollow, groupOf, identityKey, levelRank, rankName, sortCardsDesc, suitName, summarizePointCards, trickWinner, validateFollow,
+  checkDeclaration, createRng, declarationCandidates, decompose, generateFollow, groupOf, identityKey, levelRank, rankName, sortCardsDesc, suitName, summarizePointCards, trickWinner, tripleDeclarationTier, validateFollow,
   type Card, type GameEvent, type PlayerView, type Seat, type TrickPlay,
 } from '@shengji/engine';
 import type { ClientMessage } from '@shengji/protocol';
@@ -96,7 +96,13 @@ function declarationOptions(view: PlayerView): DeclareOption[] {
 function statusText(view: PlayerView, name: (s: Seat) => string): string {
   const me = view.seat;
   switch (view.phase) {
-    case 'dealing': return view.declaration ? `${name(view.declaration.seat)} 亮了 ${view.declaration.count} 张，更多张可以反` : '发牌中，有级牌或对王可以亮主';
+    case 'dealing': {
+      const d = view.declaration;
+      if (!d) return '发牌中，有级牌或对王可以亮主';
+      // 同是三张还分强弱：三张一样的王 > 三张一样的级牌 > 三张不一样的王
+      const hint = d.count < 3 ? '更多张可以反' : tripleDeclarationTier(d.cards) < 2 ? '更大的三张可以反' : '已经最大';
+      return `${name(d.seat)} 亮了 ${d.count} 张，${hint}`;
+    }
     case 'declaring': {
       // 反主只改主花色，不改庄家：只有首局才是先亮主者坐庄
       const dealerText = view.dealer !== null ? `，${name(view.dealer)} 坐庄` : '';
