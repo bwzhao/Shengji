@@ -1,11 +1,10 @@
-# main 上有新提交：先跑类型检查、测试和前端打包，全部通过后部署到 Fly.io。PR 上只跑检查，不部署。
+# 合并到 main 后：先跑 ci.yml 的检查，通过后部署到 Fly.io。PR 上不跑这个文件。
 # 部署要用仓库 secret FLY_API_TOKEN，由 `fly tokens create deploy -a shengji-zhaopengyou` 生成。
-name: CI & Deploy
+name: Deploy
 
 on:
   push:
     branches: [main]
-  pull_request:
   # Actions 页面手动重新部署 main
   workflow_dispatch:
 
@@ -14,25 +13,13 @@ permissions:
 
 jobs:
   check:
-    name: 类型检查与测试
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v5
-      # 和 Dockerfile 一致：Node 24，corepack 装 pnpm 12
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - run: corepack enable && corepack prepare pnpm@12 --activate
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: pnpm test
-      - run: pnpm build
+    uses: ./.github/workflows/ci.yml
 
   deploy:
     name: 部署到 Fly.io
     needs: check
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    # 手动触发时也只部署 main
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # 同一时间只跑一个部署：后来的排队，不打断正在进行的

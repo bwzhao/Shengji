@@ -60,7 +60,7 @@ pnpm dev:web       # http://localhost:5173，会打印局域网地址，同一 W
 
 仓库自带 `Dockerfile` 和 `fly.toml`（一台机器，空闲时自动休眠、有人访问自动唤醒，1GB 卷挂在 /data 存快照，休眠前后牌局靠快照恢复）。
 
-**自动部署**：合并到 main 后，GitHub Actions（`.github/workflows/ci-deploy.yml`）先跑类型检查、测试和前端打包，全部通过才执行 `flyctl deploy`。PR 上只跑检查，不部署。在 Actions 页面选「CI & Deploy」→「Run workflow」可以手动重新部署 main。需要在仓库 Settings → Secrets and variables → Actions 里配好 `FLY_API_TOKEN`，用下面的命令生成：
+**自动部署**：PR 上由 `.github/workflows/ci.yml` 跑类型检查、测试和前端打包，不部署。合并到 main 后由 `.github/workflows/deploy.yml` 先跑同一份检查，全部通过才执行 `flyctl deploy`。在 Actions 页面选「Deploy」→「Run workflow」可以手动重新部署 main。需要在仓库 Settings → Secrets and variables → Actions 里配好 `FLY_API_TOKEN`，用下面的命令生成：
 
 ```bash
 fly tokens create deploy -a shengji-zhaopengyou
