@@ -413,7 +413,7 @@ export class Room {
   private record(action: Action, next: GameState, events: readonly GameEvent[]): void {
     const cur = this.roundLogs[this.roundLogs.length - 1];
     if (cur) (cur.actions as Action[]).push(action);
-    if (events.some((e) => e.type === 'dealerChanged' || e.type === 'redeal')) this.beginRoundLog(next);
+    if (events.some((e) => e.type === 'dealerChanged' || e.type === 'redeal' || e.type === 'regrab')) this.beginRoundLog(next);
   }
 
   replayFor(token: string, round: number): void {

@@ -177,11 +177,17 @@ describe('亮主记录和庄家看底', () => {
   });
 
   it('非首局翻底定主也记下来；庄家扣底后一直能看到自己扣的底，别人看不到', () => {
-    let s = dealAll(createGame(defaultConfig(5), 'flip'));
-    s = { ...s, round: 2, dealer: 0 };
-    const flipped = [...s.bottom].reverse().find((c) => c.suit !== 'J')!;
-    s = must(applyAction(s, { type: 'closeDeclaring' }));
-    expect(s.declarationLog).toEqual([{ kind: 'bottom', card: flipped, suit: flipped.suit }]);
+    let s = flipState(5, (at) => at >= 1);
+    const order = [...s.bottom].reverse();
+    const at = order.findIndex((c) => c.suit === 'J' || c.rank === s.level);
+    const card = order[at]!;
+    const suit = card.suit === 'J' ? null : card.suit;
+    const r = applyAction(s, { type: 'closeDeclaring' });
+    s = must(r);
+    // 一张张翻到第一张常主（级牌或王）为止，翻开的牌都记下来
+    expect(s.declarationLog).toEqual([{ kind: 'bottom', card, suit, flipped: order.slice(0, at + 1) }]);
+    expect(s.trumpSuit).toBe(suit);
+    expect(r.ok && r.events[0]).toEqual({ type: 'declaringClosed', trumpSuit: suit, byBottom: true, flipped: order.slice(0, at + 1) });
     const buried = s.hands[0]!.slice(0, 7);
     s = must(applyAction(s, { type: 'exchangeBottom', seat: 0, cards: buried.map((c) => c.id) }));
     expect(s.phase).toBe('callFriend');
@@ -542,4 +548,98 @@ describe('出牌记录（#10）', () => {
     });
     expect(checked).toBeGreaterThan(20);
   });
+});
+
+/** 第二局发完牌、没人亮主、庄家是 0 号位的局面；at 是倒着翻底时第一张常主的位置（没有常主为 -1），按条件挑种子 */
+function flipState(players: 4 | 5 | 6, want: (at: number) => boolean): GameState {
+  for (let k = 0; ; k++) {
+    const s = { ...dealAll(createGame(defaultConfig(players), `flip-${k}`)), round: 2, dealer: 0 as number | null };
+    const at = [...s.bottom].reverse().findIndex((c) => c.suit === 'J' || c.rank === s.level);
+    if (want(at)) return s;
+  }
+}
+
+describe('无人亮主翻底（#17）', () => {
+  it('翻到王就打无主', () => {
+    // 找一个倒着翻底时第一张常主是王的种子
+    let s: GameState;
+    for (let k = 0; ; k++) {
+      s = { ...dealAll(createGame(defaultConfig(4), `flip-j-${k}`)), round: 2, dealer: 0 };
+      const order = [...s.bottom].reverse();
+      const at = order.findIndex((c) => c.suit === 'J' || c.rank === s.level);
+      if (at >= 0 && order[at]!.suit === 'J') break;
+    }
+    s = must(applyAction(s, { type: 'closeDeclaring' }));
+    expect(s.trumpSuit).toBeNull();
+    expect(s.trumpDecided).toBe(true);
+    expect(s.phase).toBe('bottom');
+  });
+
+  it('底牌没有常主：重新发牌抢庄，谁先亮出自己的级牌谁坐庄，之后反主只改主', () => {
+    const s0 = flipState(4, (at) => at < 0);
+    const r = applyAction(s0, { type: 'closeDeclaring' });
+    let s = must(r);
+    expect(r.ok && r.events).toEqual([{ type: 'regrab', flipped: [...s0.bottom].reverse() }]);
+    expect(s.phase).toBe('dealing');
+    expect(s.dealer).toBeNull();
+    expect(s.redeals).toBe(s0.redeals + 1);
+    // 两队等级不同：0、2 号位打 2，1、3 号位打 7
+    s = dealAll({ ...s, levels: [0, 5, 0, 5] });
+    expect(viewFor(s, 0).level).toBe(2);
+    expect(viewFor(s, 1).level).toBe(7);
+    const own = (seat: number, rank: number) => s.hands[seat]!.find((c) => c.suit !== 'J' && c.rank === rank);
+    // 找一个 1 号位有 7、0 号位有 2 的局面不容易保证，直接把需要的牌换进手里
+    const seven = s.hands.flat().find((c) => c.rank === 7 && c.suit !== 'J')!;
+    if (!own(1, 7)) {
+      const holder = s.hands.findIndex((h) => h.some((c) => c.id === seven.id));
+      const give = s.hands[1]![0]!;
+      const hands = s.hands.map((h) => [...h]);
+      hands[holder] = hands[holder]!.map((c) => (c.id === seven.id ? give : c));
+      hands[1] = hands[1]!.map((c) => (c.id === give.id ? seven : c));
+      s = { ...s, hands };
+    }
+    const mine = own(1, 7)!;
+    // 0 号位不能用 7 亮（不是他的级），1 号位用 7 亮就坐庄、这一局打 7
+    expect(applyAction(s, { type: 'declare', seat: 0, cards: [mine.id] }).ok).toBe(false);
+    s = must(applyAction(s, { type: 'declare', seat: 1, cards: [mine.id] }));
+    expect(s.dealer).toBe(1);
+    expect(s.level).toBe(7);
+    // 定了庄以后：别人只能用 7 反主，反主只改主花色，不换庄家
+    const two = own(0, 2);
+    if (two) expect(applyAction(s, { type: 'declare', seat: 0, cards: [two.id] }).ok).toBe(false);
+    const pair = s.hands.map((h, seat) => ({ seat, cards: h.filter((c) => c.rank === 7 && c.suit !== 'J') }))
+      .find((x) => x.seat !== 1 && new Set(x.cards.map((c) => c.suit)).size < x.cards.length);
+    if (pair) {
+      const bySuit = new Map<string, typeof pair.cards>();
+      for (const c of pair.cards) bySuit.set(c.suit, [...(bySuit.get(c.suit) ?? []), c]);
+      const cards = [...bySuit.values()].find((v) => v.length >= 2)!.slice(0, 2);
+      s = must(applyAction(s, { type: 'declare', seat: pair.seat, cards: cards.map((c) => c.id) }));
+      expect(s.dealer).toBe(1);
+      expect(s.trumpSuit).toBe(cards[0]!.suit);
+    }
+  });
+
+  it('重新抢庄时也没人亮：再重发，接着抢', () => {
+    let s = must(applyAction(flipState(5, (at) => at < 0), { type: 'closeDeclaring' }));
+    s = dealAll(s);
+    const r = applyAction(s, { type: 'closeDeclaring' });
+    expect(r.ok && r.events).toEqual([{ type: 'redeal' }]);
+    expect(must(r).dealer).toBeNull();
+    expect(must(r).round).toBe(2);
+  });
+
+  it('自对弈里翻底和重新抢庄都会发生，牌局都能打完', () => {
+    let regrabs = 0, flips = 0;
+    for (const players of [4, 5, 6] as const) {
+      for (let g = 0; g < 4; g++) {
+        simulateGame(defaultConfig(players), `regrab-${players}-${g}`, {
+          maxRounds: 6,
+          bot: { declareProbability: 0.002, throwProbability: 0.1 },
+          onEvent: (e) => { if (e.type === 'regrab') regrabs++; if (e.type === 'declaringClosed' && e.byBottom) flips++; },
+        });
+      }
+    }
+    expect(regrabs).toBeGreaterThan(0);
+    expect(flips).toBeGreaterThan(0);
+  }, 120_000);
 });

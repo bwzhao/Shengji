@@ -98,6 +98,7 @@ function statusText(view: PlayerView, name: (s: Seat) => string): string {
   switch (view.phase) {
     case 'dealing': {
       const d = view.declaration;
+      if (!d && view.dealer === null && view.round > 1) return '重新抢庄：谁先亮出自己的级牌谁坐庄';
       if (!d) return '发牌中，有级牌或对王可以亮主';
       // 同是三张还分强弱：三张大王 > 三张小王 > 三张一样的级牌 > 三张不一样的王
       const hint = d.count < 3 ? '更多张可以反' : tripleDeclarationTier(d.cards) < TOP_TRIPLE_TIER ? '更大的三张可以反' : '已经最大';
@@ -139,6 +140,9 @@ export function Table({ client }: { client: GameClient }) {
   const n = view.config.players;
   const [selected, setSelected] = useState<string[]>([]);
   const [flash, setFlash] = useState<string | null>(null);
+  // 无人亮主翻底：翻开的底牌一张张亮给所有人看
+  const [flipShow, setFlipShow] = useState<{ label: string; cards: readonly Card[] } | null>(null);
+  const flipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [linger, setLinger] = useState<{ trick: typeof view.lastTrick; until: number } | null>(null);
   // 「上一轮」按钮：点一下把上一墩每人出的牌摆回桌上看 3 秒，再点一下提前收起
   const [peek, setPeek] = useState(false);
@@ -226,7 +230,13 @@ export function Table({ client }: { client: GameClient }) {
         case 'friendRevealed': texts.push(e.seat === view.dealer ? '庄家自己打出了朋友牌' : `${name(e.seat)} 是庄家的朋友`); sound.friend(); break;
         case 'throwFailed': texts.push(`${name(e.seat)} 甩牌失败，罚 ${e.penalty} 分`); sound.error(); break;
         case 'declared': texts.push(`${name(e.seat)} 亮 ${e.count} 张${e.suit ? GLYPH[e.suit] : '王'}`); sound.bark(); break;
-        case 'declaringClosed': if (e.byBottom) texts.push(`无人亮主，翻底牌定${suitName(e.trumpSuit)}`); break;
+        case 'declaringClosed':
+          if (e.byBottom) {
+            texts.push(`无人亮主，翻底牌定${suitName(e.trumpSuit)}`);
+            if (e.flipped) showFlip(`翻底定${suitName(e.trumpSuit)}`, e.flipped);
+          }
+          break;
+        case 'regrab': texts.push('底牌里没有常主，重新发牌抢庄'); showFlip('底牌没有常主', e.flipped); break;
         case 'redeal': texts.push('无人亮主，重新发牌'); break;
         case 'roundRestarted': texts.push('房主重发了本局'); break;
         default: break;
@@ -238,6 +248,12 @@ export function Table({ client }: { client: GameClient }) {
       flashTimer.current = setTimeout(() => { flashTimer.current = null; setFlash(null); }, 2200);
     }
   }, [client.events]);
+  function showFlip(label: string, cards: readonly Card[]) {
+    setFlipShow({ label, cards });
+    if (flipTimer.current) clearTimeout(flipTimer.current);
+    flipTimer.current = setTimeout(() => { flipTimer.current = null; setFlipShow(null); }, 2500 + cards.length * 350);
+  }
+  useEffect(() => () => { if (flipTimer.current) clearTimeout(flipTimer.current); }, []);
 
   // 服务端每次都发整份视图，lastTrick 每次都是新对象；用牌的内容当键，只在真的有新一墩结束时触发
   const lastTrickKey = view.lastTrick ? `${view.round}:${view.lastTrick.plays.map((p) => p.cards.map((c) => c.id).join(',')).join('|')}` : '';
@@ -461,6 +477,9 @@ export function Table({ client }: { client: GameClient }) {
           </div>
           {view.declaration && (view.phase === 'dealing' || view.phase === 'declaring') && (
             <div className="declared"><span>{name(view.declaration.seat)} 亮</span><CardRow cards={view.declaration.cards} small /></div>
+          )}
+          {flipShow && (
+            <div className="declared flip"><span>{flipShow.label}</span><CardRow cards={flipShow.cards} small /></div>
           )}
           {declareSecs !== null && (
             <div className={`declare-timer ${declareSecs <= 5 ? 'urgent' : ''}`}>亮主倒计时 <b>{declareSecs}</b> 秒</div>

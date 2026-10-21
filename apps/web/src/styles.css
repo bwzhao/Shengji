@@ -150,6 +150,16 @@ b { font-weight: 700; }
 .status.flash { background: rgba(224,176,82,.9); color: var(--gold-ink); animation: pop .25s ease-out; }
 .declared { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); }
 .declare-timer { font-size: 12px; color: var(--ink-2); }
+/* 翻底：一张张翻开 */
+.declared.flip .card { animation: flip-in .3s ease-out both; }
+.declared.flip .card:nth-child(2) { animation-delay: .35s; }
+.declared.flip .card:nth-child(3) { animation-delay: .7s; }
+.declared.flip .card:nth-child(4) { animation-delay: 1.05s; }
+.declared.flip .card:nth-child(5) { animation-delay: 1.4s; }
+.declared.flip .card:nth-child(6) { animation-delay: 1.75s; }
+.declared.flip .card:nth-child(7) { animation-delay: 2.1s; }
+.declared.flip .card:nth-child(8) { animation-delay: 2.45s; }
+@keyframes flip-in { from { transform: rotateY(90deg); opacity: 0; } to { transform: none; opacity: 1; } }
 .declare-timer b { color: var(--gold); font-size: 15px; font-variant-numeric: tabular-nums; }
 .declare-timer.urgent b { color: var(--red); }
 .declare-hints { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; pointer-events: auto; }

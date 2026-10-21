@@ -19,11 +19,12 @@ export interface Declaration {
 
 /**
  * 本局亮主记录的一条。declare：第一个亮主；reinforce：自己加固；override：反主；
- * bottom：非首局无人亮主，翻底定主（card 是决定主花色的那张，底牌全是王时为 null，打无主）
+ * bottom：非首局无人亮主，底牌一张张翻到第一张常主（级牌或王）定主；card 是那张常主，flipped 是翻开的全部牌。
+ *   旧存档里的翻底记录没有 flipped，card 为 null 表示打无主
  */
 export type DeclarationRecord =
   | { readonly kind: 'declare' | 'reinforce' | 'override'; readonly seat: Seat; readonly cards: readonly Card[]; readonly suit: Suit | null }
-  | { readonly kind: 'bottom'; readonly card: Card | null; readonly suit: Suit | null };
+  | { readonly kind: 'bottom'; readonly card: Card | null; readonly suit: Suit | null; readonly flipped?: readonly Card[] };
 
 export interface FriendCallSpec {
   readonly suit: Suit;
@@ -118,7 +119,9 @@ export type GameEvent =
   | { readonly type: 'declared'; readonly seat: Seat; readonly cards: readonly Card[]; readonly suit: Suit | null; readonly count: number }
   | { readonly type: 'redeal' }
   | { readonly type: 'roundRestarted' }
-  | { readonly type: 'declaringClosed'; readonly trumpSuit: Suit | null; readonly byBottom: boolean }
+  | { readonly type: 'declaringClosed'; readonly trumpSuit: Suit | null; readonly byBottom: boolean; readonly flipped?: readonly Card[] }
+  /** 非首局无人亮主、底牌里也没有常主：重新发牌抢庄，flipped 是翻开的全部底牌 */
+  | { readonly type: 'regrab'; readonly flipped: readonly Card[] }
   | { readonly type: 'bottomTaken'; readonly seat: Seat; readonly count: number }
   | { readonly type: 'bottomExchanged'; readonly seat: Seat }
   | { readonly type: 'friendCalled'; readonly calls: readonly FriendCallSpec[] }
