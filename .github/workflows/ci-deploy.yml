@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # 和 Dockerfile 一致：Node 24，corepack 装 pnpm 12
       - uses: actions/setup-node@v4
         with:
@@ -40,7 +40,7 @@ jobs:
       group: fly-deploy
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: superfly/flyctl-actions/setup-flyctl@master
       # 一台机器加一个卷存快照，不开第二台
       - run: flyctl deploy --remote-only --ha=false
