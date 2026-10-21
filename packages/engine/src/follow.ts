@@ -56,6 +56,8 @@ function forcedTractors(pool: Pool, mult: number, len: number): string[][] {
 /**
  * 需求消解：按拖拉机（重数高、长度长优先）→ 三条 → 对子 的顺序，
  * 手里有对应牌型就必须出，没有则降级为更小的需求。
+ * 没有同长的拖拉机时，短一节的拖拉机也必须出，多出的一节降为对子（三条拖拉机降为三条），
+ * 一直短到两节为止；两节的也没有才全部降为对子或三条。
  * 三条不必拆成对子去跟对子或对子拖拉机，但自愿拆开出是合法的。
  * pool 是手中该组的牌，playPool 是所出该组的牌；返回 playPool 是否满足。
  */
@@ -69,6 +71,14 @@ function satisfies(reqs: Reqs, ti: number, triples: number, pairs: number, pool:
         if (satisfies(reqs, ti + 1, triples, pairs, p2, pp2)) return true;
       }
       return false;
+    }
+    if (t.length > 2) {
+      const tractors = [...reqs.tractors];
+      tractors[ti] = { mult: t.mult, length: t.length - 1 };
+      const shorter = { ...reqs, tractors };
+      return t.mult === 3
+        ? satisfies(shorter, ti, triples + 1, pairs, pool, playPool)
+        : satisfies(shorter, ti, triples, pairs + 1, pool, playPool);
     }
     return t.mult === 3
       ? satisfies(reqs, ti + 1, triples + t.length, pairs, pool, playPool)
@@ -185,11 +195,16 @@ export function generateFollowWith(lead: Decomposition, hand: readonly Card[], c
   const reqs = reqsOf(lead);
   let triples = reqs.triples, pairs = reqs.pairs;
   for (const t of reqs.tractors) {
-    if (hasForcedTractor(pool, t.mult, t.length)) {
-      const keys = chooser.pickTractor(forcedTractors(pool, t.mult, t.length), pool);
+    // 没有同长的拖拉机就出最长的短拖拉机，不够的节数降为对子或三条
+    let len = t.length;
+    while (len >= 2 && !hasForcedTractor(pool, t.mult, len)) len--;
+    if (len >= 2) {
+      const keys = chooser.pickTractor(forcedTractors(pool, t.mult, len), pool);
       for (const k of keys) chosen.push(...poolTake(pool, k, t.mult));
-    } else if (t.mult === 3) triples += t.length;
-    else pairs += t.length;
+    }
+    const rest = len >= 2 ? t.length - len : t.length;
+    if (t.mult === 3) triples += rest;
+    else pairs += rest;
   }
   while (triples > 0) {
     const ids = identitiesWithAtLeast(pool, 3);
