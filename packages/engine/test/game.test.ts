@@ -524,3 +524,22 @@ describe('四人升级：5、10、K 必打且庄上过', () => {
     expect(passed).toBeGreaterThan(0);
   }, 120_000);
 });
+
+describe('出牌记录（#10）', () => {
+  it('每个座位都能看到本局打完的每一墩，和局面里的记录一致', () => {
+    let checked = 0;
+    simulateGame(defaultConfig(5), 'play-log', {
+      maxRounds: 1,
+      onEvent: (e, s) => {
+        if (e.type !== 'trickWon') return;
+        for (let seat = 0; seat < s.config.players; seat++) {
+          const v = viewFor(s, seat);
+          expect(v.tricks).toEqual(s.tricks);
+          expect(v.lastTrick).toEqual(s.tricks[s.tricks.length - 1]);
+        }
+        checked++;
+      },
+    });
+    expect(checked).toBeGreaterThan(20);
+  });
+});

@@ -6,7 +6,7 @@ import {
 import type { ClientMessage } from '@shengji/protocol';
 import { CardRow, CardView } from '../components/CardView.tsx';
 import { FriendCallForm } from '../components/FriendCallForm.tsx';
-import { BottomSheet, DeclarationLogSheet } from '../components/InfoSheets.tsx';
+import { BottomSheet, DeclarationLogSheet, PlayLogSheet } from '../components/InfoSheets.tsx';
 import { RoundEnd } from '../components/RoundEnd.tsx';
 import { Avatar } from '../avatar.tsx';
 import { sound } from '../sound.ts';
@@ -153,7 +153,7 @@ export function Table({ client }: { client: GameClient }) {
   const [soundOn, setSoundOn] = useState(sound.enabled);
   const [menuOpen, setMenuOpen] = useState(false);
   // 顶栏「主」打开亮主记录，庄家点「底」看自己扣的底
-  const [sheet, setSheet] = useState<'declarations' | 'bottom' | null>(null);
+  const [sheet, setSheet] = useState<'declarations' | 'bottom' | 'plays' | null>(null);
   // 牌桌宽度与窗口高度：出牌太长、牌间距压到最小仍放不下时整排缩小，需要知道牌桌多宽、牌有多宽
   const feltRef = useRef<HTMLElement | null>(null);
   const [viewport, setViewport] = useState(() => ({ w: window.innerWidth, h: window.innerHeight, feltH: 210 }));
@@ -347,7 +347,11 @@ export function Table({ client }: { client: GameClient }) {
       <div className="rotate-cover"><div className="rotate-icon">⟲</div><div>请把手机横过来</div><div className="hint">牌桌按横屏设计</div></div>
       <header className="topbar">
         <span className="tb-item tb-code" title="房间码">房 <b>{room.code}</b></span>
-        <span className="tb-item">第 {view.round} 局</span>
+        {view.tricks.length > 0 ? (
+          <button className="tb-item tb-click" onClick={() => setSheet('plays')} title="出牌记录">第 {view.round} 局<span className="tb-action">出牌</span></button>
+        ) : (
+          <span className="tb-item">第 {view.round} 局</span>
+        )}
         <span className="tb-item">级 <b>{rankName(view.level)}</b></span>
         <button className="tb-item tb-click" onClick={() => setSheet('declarations')} title="亮主记录">
           主 <b className={view.trumpSuit === 'H' || view.trumpSuit === 'D' ? 'red' : ''}>{view.trumpDecided ? suitName(view.trumpSuit) : '未定'}</b>
@@ -535,6 +539,7 @@ export function Table({ client }: { client: GameClient }) {
 
       {sheet === 'declarations' && <DeclarationLogSheet view={view} name={name} onClose={() => setSheet(null)} />}
       {sheet === 'bottom' && myBottom && <BottomSheet view={view} cards={myBottom} onClose={() => setSheet(null)} />}
+      {sheet === 'plays' && <PlayLogSheet view={view} name={name} onClose={() => setSheet(null)} />}
 
       {(view.phase === 'roundEnd' || view.phase === 'gameOver') && view.lastRound && (
         <RoundEnd
