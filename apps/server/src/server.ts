@@ -174,6 +174,7 @@ wss.on('connection', (ws: AliveSocket) => {
     if (seat === null) return send(ws, { t: 'error', code: 'NOT_SEATED', message: '你没有坐下' });
     switch (msg.t) {
       case 'declare': return r.act(token, { type: 'declare', seat, cards: msg.cards });
+      case 'passDeclare': return r.passDeclare(token);
       case 'exchangeBottom': return r.act(token, { type: 'exchangeBottom', seat, cards: msg.cards });
       case 'callFriend': return r.act(token, { type: 'callFriend', seat, calls: msg.calls });
       case 'play': return r.act(token, { type: 'play', seat, cards: msg.cards });

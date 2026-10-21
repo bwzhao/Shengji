@@ -139,3 +139,70 @@ it('机器人亮主也重新计时，而且不等倒计时结束就考虑', () =
   vi.advanceTimersByTime(GRACE - 1);
   expect(room.state?.phase).toBe('declaring');
 });
+
+it('在线真人都点不反就提前结束，不等倒计时', () => {
+  const { state, cards } = dealt(true);
+  const { room, inbox } = setup(state);
+  rooms.push(room);
+  room.act('h0', { type: 'declare', seat: 0, cards });
+  for (const t of ['h1', 'h2', 'h3']) room.passDeclare(t);
+  expect(room.state?.phase).toBe('declaring');
+  expect(lastState(inbox).declarePassed).toEqual([1, 2, 3]);
+  // 亮主的人也要表态（他还可以加固）
+  room.passDeclare('h0');
+  expect(room.state?.phase).toBe('bottom');
+});
+
+it('有人亮主、加固或反主，之前的不反全部作废', () => {
+  const { state, cards } = dealt(true);
+  const { room, inbox } = setup(state);
+  rooms.push(room);
+  for (const t of ['h1', 'h2', 'h3']) room.passDeclare(t);
+  expect(lastState(inbox).declarePassed).toEqual([1, 2, 3]);
+  room.act('h0', { type: 'declare', seat: 0, cards });
+  expect(lastState(inbox).declarePassed).toEqual([]);
+  room.passDeclare('h0');
+  expect(room.state?.phase).toBe('declaring');
+  for (const t of ['h1', 'h2']) room.passDeclare(t);
+  expect(room.state?.phase).toBe('declaring');
+  room.passDeclare('h3');
+  expect(room.state?.phase).toBe('bottom');
+});
+
+it('不在线的真人不用等', () => {
+  const room = new Room('TEST', 4, 'h0', opts);
+  rooms.push(room);
+  for (let i = 0; i < 4; i++) { room.join(`h${i}`, `玩家${i}`, i === 3 ? null : fakeSocket([])); room.sit(`h${i}`, i); }
+  room.state = dealt(false).state;
+  room.resume();
+  for (const t of ['h0', 'h1', 'h2']) room.passDeclare(t);
+  // 首局无人亮主：重新发牌
+  expect(room.state?.phase).toBe('dealing');
+});
+
+it('真人都不反时先让机器人看一眼，机器人反了就重新等真人', () => {
+  let state: GameState | null = null;
+  for (let k = 0; !state; k++) {
+    let st = createGame(defaultConfig(4), `declare-bot-${k}`);
+    while (st.phase === 'dealing') st = step(st, { type: 'dealCard' });
+    if ([1, 2, 3].some((seat) => smartDeclare(st, seat, createRng('x')))) state = st;
+  }
+  const room = new Room('TEST', 4, 'h0', opts);
+  rooms.push(room);
+  room.botStrength = 'normal';
+  const inbox: ServerMessage[] = [];
+  room.join('h0', '玩家0', fakeSocket(inbox));
+  room.sit('h0', 0);
+  for (let i = 1; i < 4; i++) room.addBot('h0', i);
+  room.state = state;
+  room.resume();
+
+  // 机器人还没来得及考虑（要等 botDelayMs）真人就不反了
+  room.passDeclare('h0');
+  expect(room.state?.phase).toBe('declaring');
+  expect(room.state?.declaration?.seat).toBeGreaterThan(0);
+  expect(lastState(inbox).declarePassed).toEqual([]);
+  // 机器人之间可能还会互相反，最后总会结束
+  for (let i = 0; i < 10 && room.state?.phase === 'declaring'; i++) room.passDeclare('h0');
+  expect(room.state?.phase).toBe('bottom');
+});

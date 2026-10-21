@@ -169,6 +169,8 @@ export function Table({ client }: { client: GameClient }) {
     return () => clearInterval(id);
   }, [declareDeadline]);
   const declareSecs = declareDeadline === null ? null : Math.max(0, Math.ceil((declareDeadline - now) / 1000));
+  // 点了「不反」的人；有人亮主、加固或反主后服务端清空，按钮重新可点
+  const passed = view.phase === 'declaring' ? client.declarePassed : [];
   const prevHandIds = useRef<Set<string>>(new Set());
   const prevTurn = useRef<boolean>(false);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -412,6 +414,7 @@ export function Table({ client }: { client: GameClient }) {
                 <span className="b-count">{view.handCounts[seat]}</span>
                 {shownLeader === seat && <span className="b-lead" title="这一墩是他先出的">首</span>}
                 {s && !s.connected && <span className="b-off">离线</span>}
+                {passed.includes(seat) && <span className="b-pass">不反</span>}
               </span>
             </div>
           );
@@ -492,6 +495,11 @@ export function Table({ client }: { client: GameClient }) {
           ))}
         </div>
         <div className="actions">
+          {view.phase === 'declaring' && (
+            <button className="ghost" disabled={passed.includes(me)} onClick={() => send({ t: 'passDeclare' })}>
+              {passed.includes(me) ? '已不反，等其他人' : '不反'}
+            </button>
+          )}
           {(view.phase === 'dealing' || view.phase === 'declaring') && (
             <button className="primary" disabled={!declarable(view, selectedCards)} onClick={() => { send({ t: 'declare', cards: selected }); setSelected([]); }}>
               亮主{selected.length ? ` ${selected.length} 张` : ''}
