@@ -414,7 +414,7 @@ describe('自己亮的主只能加固', () => {
     }
   });
 
-  it('三张亮主：三张一样的王 > 三张一样的级牌 > 三张不一样的王，同一档先亮者有效', async () => {
+  it('三张亮主：三张大王 > 三张小王 > 三张一样的级牌 > 三张不一样的王，同一档先亮者有效', async () => {
     const { checkDeclaration } = await import('../src/reducer.ts');
     const c = (suit: 'S' | 'H' | 'D' | 'C' | 'J', rank: number, deck = 0) => ({ id: `${suit}${rank}-${deck}`, suit, rank, deck });
     const big3 = [c('J', 16), c('J', 16, 1), c('J', 16, 2)];
@@ -434,10 +434,13 @@ describe('自己亮的主只能加固', () => {
       expect(checkDeclaration(by(level3('H'), 'H'), 0, big3)).toBeNull();
       expect(checkDeclaration(by(level3('H'), 'H'), 0, level3('S'))?.code).toBe('DECLARATION_TOO_WEAK');
       expect(checkDeclaration(by(level3('H'), 'H'), 0, mixed3)?.code).toBe('DECLARATION_TOO_WEAK');
-      // 三张一样的王最大；三张大王和三张小王同一档，互相反不了
-      expect(checkDeclaration(by(small3, null), 0, big3)?.code).toBe('DECLARATION_TOO_WEAK');
+      // 三张小王只有三张大王能反；三张大王最大
+      expect(checkDeclaration(by(small3, null), 0, big3)).toBeNull();
+      expect(checkDeclaration(by(small3, null), 0, [c('J', 15, 3), c('J', 15, 4), c('J', 15, 5)])?.code).toBe('DECLARATION_TOO_WEAK');
+      expect(checkDeclaration(by(small3, null), 0, level3('S'))?.code).toBe('DECLARATION_TOO_WEAK');
       expect(checkDeclaration(by(big3, null), 0, small3)?.code).toBe('DECLARATION_TOO_WEAK');
       expect(checkDeclaration(by(big3, null), 0, level3('S'))?.code).toBe('DECLARATION_TOO_WEAK');
+      expect(checkDeclaration(by(big3, null), 0, [c('J', 16, 3), c('J', 16, 4), c('J', 16, 5)])?.code).toBe('DECLARATION_TOO_WEAK');
       // 张数仍然优先：三张都能反两张，两张反不了三张
       expect(checkDeclaration(by([c('J', 16), c('J', 16, 1)], null), 0, mixed3)).toBeNull();
       expect(checkDeclaration(by(mixed3, null), 0, [c('S', 5), c('S', 5, 1)])?.code).toBe('DECLARATION_TOO_WEAK');

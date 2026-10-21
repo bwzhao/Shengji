@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  checkDeclaration, createRng, declarationCandidates, decompose, generateFollow, groupOf, identityKey, levelRank, rankName, sortCardsDesc, suitName, summarizePointCards, trickWinner, tripleDeclarationTier, validateFollow,
+  checkDeclaration, createRng, declarationCandidates, decompose, generateFollow, groupOf, identityKey, levelRank, rankName, sortCardsDesc, suitName, summarizePointCards, TOP_TRIPLE_TIER, trickWinner, tripleDeclarationTier, validateFollow,
   type Card, type GameEvent, type PlayerView, type Seat, type TrickPlay,
 } from '@shengji/engine';
 import type { ClientMessage } from '@shengji/protocol';
@@ -99,8 +99,8 @@ function statusText(view: PlayerView, name: (s: Seat) => string): string {
     case 'dealing': {
       const d = view.declaration;
       if (!d) return '发牌中，有级牌或对王可以亮主';
-      // 同是三张还分强弱：三张一样的王 > 三张一样的级牌 > 三张不一样的王
-      const hint = d.count < 3 ? '更多张可以反' : tripleDeclarationTier(d.cards) < 2 ? '更大的三张可以反' : '已经最大';
+      // 同是三张还分强弱：三张大王 > 三张小王 > 三张一样的级牌 > 三张不一样的王
+      const hint = d.count < 3 ? '更多张可以反' : tripleDeclarationTier(d.cards) < TOP_TRIPLE_TIER ? '更大的三张可以反' : '已经最大';
       return `${name(d.seat)} 亮了 ${d.count} 张，${hint}`;
     }
     case 'declaring': {

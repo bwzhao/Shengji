@@ -149,11 +149,13 @@ function declarationKindRank(cards: readonly Card[]): number {
   return c.rank === 16 ? 2 : 1;
 }
 
-/** 三张亮主的强弱：三张一样的王 2 > 三张一样的级牌 1 > 三张不一样的王 0 */
+/** 三张亮主的强弱：三张大王 3 > 三张小王 2 > 三张一样的级牌 1 > 三张不一样的王 0 */
+export const TOP_TRIPLE_TIER = 3;
 export function tripleDeclarationTier(cards: readonly Card[]): number {
   const first = cards[0] as Card;
   if (first.suit !== 'J') return 1;
-  return cards.every((c) => identityKey(c) === identityKey(first)) ? 2 : 0;
+  if (!cards.every((c) => identityKey(c) === identityKey(first))) return 0;
+  return first.rank === 16 ? 3 : 2;
 }
 
 /** 亮主合法性的输入：服务端用完整局面，客户端用 PlayerView，两边都有这三项 */
@@ -167,7 +169,7 @@ export interface DeclarationContext {
  * 检查 seat 亮出 cards 是否合法（不检查牌是否在手里）。服务端、机器人、界面提示共用这一份规则。
  * - 级牌一到三张同一张牌，或两三张同样的王；三副牌里三张王可以大小混
  * - 反别人的主：张数更多；四人模式同张数时一对王盖一对级牌、一对大王盖一对小王；
- *   同是三张时三张一样的王 > 三张一样的级牌 > 三张不一样的王
+ *   同是三张时三张大王 > 三张小王 > 三张一样的级牌 > 三张不一样的王
  * - 自己已经亮着主、没人反过时：只能用更多张同样的牌加固，不能改亮别的花色或改亮王
  */
 export function checkDeclaration(ctx: DeclarationContext, seat: Seat, cards: readonly Card[]): RuleError | null {
@@ -197,7 +199,7 @@ export function checkDeclaration(ctx: DeclarationContext, seat: Seat, cards: rea
   if (count < current.count) return ruleError('DECLARATION_TOO_WEAK', `已有人亮了 ${current.count} 张，要反主必须更多张`);
   if (count === 3 && current.count === 3) {
     if (tripleDeclarationTier(cards) <= tripleDeclarationTier(current.cards)) {
-      return ruleError('DECLARATION_TOO_WEAK', '同是三张，只能用更大的三张反主：三张一样的王 > 三张一样的级牌 > 三张不一样的王');
+      return ruleError('DECLARATION_TOO_WEAK', '同是三张，只能用更大的三张反主：三张大王 > 三张小王 > 三张一样的级牌 > 三张不一样的王');
     }
   } else if (count === current.count) {
     if (!ctx.config.allowEqualCountOverride) return ruleError('DECLARATION_TOO_WEAK', '张数相同不能反主');
