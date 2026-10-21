@@ -119,6 +119,7 @@ b { font-weight: 700; }
 .b-count::after { content: ' 张'; }
 .b-lead { color: var(--ink-2); border: 1px solid var(--line-2); border-radius: 4px; padding: 0 3px; font-size: 10px; }
 .b-off { color: #ff8a80; }
+.b-pass { color: var(--muted); }
 .badge.turn { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(224,176,82,.22), 0 0 18px rgba(224,176,82,.35); animation: glow 1.6s ease-in-out infinite; }
 .avatar { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; object-fit: cover; flex: 0 0 auto; border: 1.5px solid rgba(255,255,255,.35); background: #333; }
 .avatar-text { color: #fff; font-weight: 700; }

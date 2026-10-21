@@ -54,6 +54,8 @@ export class Room {
   private declareDeadline: number | null = null;
   /** declaring 阶段机器人考虑反主 */
   private declareBotTimer: NodeJS.Timeout | null = null;
+  /** 点了「不反」的座位；有人亮主、加固或反主就清空，大家重新决定 */
+  private readonly declarePassed = new Set<Seat>();
   private botTimer: NodeJS.Timeout | null = null;
   /** 真人只剩唯一合法出法时自动代出 */
   private autoTimer: NodeJS.Timeout | null = null;
@@ -115,11 +117,17 @@ export class Room {
 
   /** 有没有真人在线：没有的话机器人暂停，不再空转 */
   humansOnline(): boolean {
-    return this.seats.some((slot) => {
-      if (!slot || slot.isBot) return false;
+    return this.onlineHumanSeats().length > 0;
+  }
+
+  private onlineHumanSeats(): Seat[] {
+    const seats: Seat[] = [];
+    for (const [i, slot] of this.seats.entries()) {
+      if (!slot || slot.isBot) continue;
       const m = this.members.get(slot.token);
-      return Boolean(m?.socket && m.socket.readyState === m.socket.OPEN);
-    });
+      if (m?.socket && m.socket.readyState === m.socket.OPEN) seats.push(i);
+    }
+    return seats;
   }
 
   seatOf(token: string): Seat | null {
@@ -225,10 +233,10 @@ export class Room {
     }
   }
 
-  /** 亮主还剩多少毫秒，随 state 消息下发；发剩余时间而不是截止时刻，客户端时钟不准也没关系 */
-  private declareTimer(): { declareLeftMs?: number } {
+  /** 亮主还剩多少毫秒、谁点了不反，随 state 消息下发；发剩余时间而不是截止时刻，客户端时钟不准也没关系 */
+  private declareTimer(): { declareLeftMs?: number; declarePassed?: Seat[] } {
     if (this.state?.phase !== 'declaring' || this.declareDeadline === null) return {};
-    return { declareLeftMs: Math.max(0, this.declareDeadline - Date.now()) };
+    return { declareLeftMs: Math.max(0, this.declareDeadline - Date.now()), declarePassed: [...this.declarePassed].sort((a, b) => a - b) };
   }
 
   /** 重连或首次连接时补发当前状态 */
@@ -436,16 +444,28 @@ export class Room {
     this.armTimers();
   }
 
-  /** 刚发完牌或有人亮主、加固、反主时重新计时；离开 declaring 阶段就清掉 */
+  /** 刚发完牌或有人亮主、加固、反主时重新计时，「不反」也作废；离开 declaring 阶段就清掉 */
   private updateDeclareWindow(events: readonly GameEvent[]): void {
     if (this.state?.phase !== 'declaring') {
       this.declareDeadline = null;
+      this.declarePassed.clear();
       this.clearTimer('grace');
       return;
     }
     if (this.declareDeadline !== null && !events.some((e) => e.type === 'declared')) return;
     this.clearTimer('grace');
     this.declareDeadline = Date.now() + this.opts.declareGraceMs;
+    this.declarePassed.clear();
+  }
+
+  /** 真人点「不反」：在线的真人都点了就不再等倒计时 */
+  passDeclare(token: string): void {
+    const seat = this.seatOf(token);
+    if (seat === null || this.state?.phase !== 'declaring') return this.error(token, 'WRONG_PHASE', '现在不是亮主阶段');
+    this.declarePassed.add(seat);
+    this.lastActivity = Date.now();
+    if (this.onlineHumanSeats().every((s) => this.declarePassed.has(s))) return this.closeDeclaringNow();
+    this.broadcastState([]);
   }
 
   /** 按当前阶段挂上需要的定时器：发牌、亮主思考时间、机器人出牌、自动下一局 */
@@ -495,7 +515,11 @@ export class Room {
     if (!this.state || this.state.phase !== 'declaring') return;
     // 没有真人在线就暂停，真人回来后重新计时
     if (!this.humansOnline()) { this.declareDeadline = null; return; }
-    // 机器人最后时刻反了主：已经重新计时，给真人时间再反
+    this.closeDeclaringNow();
+  }
+
+  /** 倒计时到点或真人都不反：先让机器人最后看一眼，机器人反了主就重新计时，给真人时间再反 */
+  private closeDeclaringNow(): void {
     if (this.botsDeclareNow()) return;
     this.apply({ type: 'closeDeclaring' });
   }
@@ -617,6 +641,7 @@ export class Room {
     this.clearTimer('deal');
     this.clearTimer('grace');
     this.declareDeadline = null;
+    this.declarePassed.clear();
     if (this.botTimer) { clearTimeout(this.botTimer); this.botTimer = null; }
     if (this.autoTimer) { clearTimeout(this.autoTimer); this.autoTimer = null; }
   }
