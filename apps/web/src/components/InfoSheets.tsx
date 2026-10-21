@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { cardPoints, sortCardsDesc, suitName, type Card, type PlayerView, type Seat } from '@shengji/engine';
 import { CardRow } from './CardView.tsx';
 
@@ -48,6 +49,37 @@ export function DeclarationLogSheet({ view, name, onClose }: { view: PlayerView;
         </ol>
       )}
       {view.trumpDecided && <div className="hint">本局主：{suitName(view.trumpSuit)}{view.dealer !== null ? `，庄家 ${name(view.dealer)}` : ''}</div>}
+    </Sheet>
+  );
+}
+
+/** 本局每一墩每人出的牌，也可以只看自己出过的 */
+export function PlayLogSheet({ view, name, onClose }: { view: PlayerView; name: (s: Seat) => string; onClose: () => void }) {
+  const [mineOnly, setMineOnly] = useState(false);
+  const ctx = { level: view.level, trumpSuit: view.trumpSuit };
+  return (
+    <Sheet title="出牌记录" onClose={onClose}>
+      <div className="seg">
+        <button className={mineOnly ? '' : 'on'} onClick={() => setMineOnly(false)}>每墩全部</button>
+        <button className={mineOnly ? 'on' : ''} onClick={() => setMineOnly(true)}>只看我出的</button>
+      </div>
+      {view.tricks.length === 0 ? (
+        <div className="hint">这一局还没有打完的墩</div>
+      ) : (
+        <ol className="play-log">
+          {view.tricks.map((t, i) => (
+            <li key={i}>
+              <div className="pl-head">第 {i + 1} 墩 · {t.winner === view.seat ? '我' : name(t.winner)} 赢{t.points > 0 ? `，${t.points} 分` : ''}</div>
+              {t.plays.filter((p) => !mineOnly || p.seat === view.seat).map((p) => (
+                <div key={p.seat} className={`pl-row ${p.seat === view.seat ? 'mine' : ''}`}>
+                  <span className="pl-who">{p.seat === view.seat ? '我' : name(p.seat)}{p.seat === t.leader ? ' · 首' : ''}</span>
+                  <CardRow cards={sortCardsDesc(p.cards, ctx)} small />
+                </div>
+              ))}
+            </li>
+          ))}
+        </ol>
+      )}
     </Sheet>
   );
 }

@@ -32,6 +32,8 @@ export interface PlayerView {
   readonly trick: Trick | null;
   /** 上一墩，供客户端在新一墩开始前短暂展示收墩 */
   readonly lastTrick: TrickRecord | null;
+  /** 本局打完的每一墩，供「出牌记录」翻看；出过的牌所有人都看得到 */
+  readonly tricks: readonly TrickRecord[];
   readonly trickNo: number;
   readonly captured: readonly number[];
   /** 已确认的闲家抓到的分；身份未定的人抓的分暂不计入 */
@@ -95,6 +97,7 @@ export function viewFor(s: GameState, seat: Seat): PlayerView {
     knownOpponents,
     trick: s.trick,
     lastTrick: s.tricks[s.tricks.length - 1] ?? null,
+    tricks: s.tricks,
     trickNo: s.tricks.length + 1,
     captured: s.captured,
     visibleOpponentPoints,
