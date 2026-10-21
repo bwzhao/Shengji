@@ -221,7 +221,7 @@ WebSocket，JSON 文本帧，路径 `/ws`。所有消息带 `t` 字段。
 | hello | name, token? | 建立或恢复会话，token 存在 localStorage |
 | createRoom | config | 返回 roomCode，创建者为房主 |
 | listRooms | – | 首页列出服务器上现有的房间：人数、进度、房主、在座的人、是否可进、能否关闭 |
-| closeRoom | code? | 关闭房间并删除牌局，成员全部回首页。房主可关任何状态的房间，没有真人在线的房间任何人可关 |
+| closeRoom | code? | 关闭房间并删除牌局，成员全部回首页。只有房主能关（GitHub issue #11）；没人在线的房间空闲两小时后自动回收 |
 | joinRoom | roomCode | 进入大厅；房间已开局时接管一个机器人座位 |
 | sit / stand | seat | 选座、离座 |
 | leaveRoom | – | 离开房间；游戏中退出则座位由机器人接管，房主顺延给下一位真人 |
