@@ -9,6 +9,7 @@ const clients: WebSocket[] = [];
 afterEach(async () => {
   for (const ws of clients.splice(0)) ws.terminate();
   await server?.close();
+  server = undefined;
 });
 
 async function connect() {

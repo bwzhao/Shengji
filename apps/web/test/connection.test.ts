@@ -93,14 +93,64 @@ it('ignores stale socket callbacks and cancels pending retries on stop', () => {
   expect(vi.getTimerCount()).toBe(0);
 });
 
-it.each(['online', 'pageshow', 'visibilitychange'])('recovers immediately on %s after a suspended page', event => {
+const resumeOn = (event: string) => (event === 'visibilitychange' ? page : win).dispatchEvent(new Event(event));
+
+it.each(['online', 'pageshow', 'visibilitychange'])('keeps a healthy socket that answers the probe on %s after a suspended page', event => {
   const old = ready();
   // Advance wall clock without running timers, as when the browser freezes a tab.
   vi.setSystemTime(Date.now() + 60000);
-  (event === 'visibilitychange' ? page : win).dispatchEvent(new Event(event));
-  expect(FakeSocket.instances).toHaveLength(2);
+  resumeOn(event);
+  // Closing it would make the server unseat a lobby player, so ask first.
+  expect(FakeSocket.instances).toHaveLength(1);
+  expect(old.sent.at(-1)).toBe('{"t":"ping"}');
+  old.message('{"t":"pong"}');
+  vi.advanceTimersByTime(10000);
+  expect(FakeSocket.instances).toHaveLength(1);
+  expect(old.readyState).toBe(1);
+  expect(connected).toHaveBeenLastCalledWith(true);
+});
+
+it.each(['online', 'pageshow', 'visibilitychange'])('reconnects within 5s when the probe on %s gets no reply', event => {
+  const old = ready();
+  vi.setSystemTime(Date.now() + 60000);
+  resumeOn(event);
+  vi.advanceTimersByTime(4999);
+  expect(FakeSocket.instances).toHaveLength(1);
+  vi.advanceTimersByTime(1);
   expect(old.readyState).toBe(3);
+  vi.advanceTimersByTime(500);
+  expect(ready().sent[0]).toContain('"token":"saved"');
+});
+
+it.each(['connecting', 'open without hello reply'])('leaves a %s handshake alone on resume (pageshow fires on every load)', state => {
+  if (state !== 'connecting') latest().open();
+  resumeOn('pageshow');
+  resumeOn('visibilitychange');
+  expect(FakeSocket.instances).toHaveLength(1);
+  expect(latest().readyState).not.toBe(3);
+  latest().message('{"t":"welcome"}');
+  expect(FakeSocket.instances).toHaveLength(1);
+});
+
+it('reconnects at the heartbeat when the socket is stuck CLOSING without an onclose', () => {
+  const old = ready();
+  old.readyState = 2;
+  vi.advanceTimersByTime(20000);
+  expect(connected).toHaveBeenLastCalledWith(false);
+  vi.advanceTimersByTime(500);
+  expect(FakeSocket.instances).toHaveLength(2);
+});
+
+it('connects at once on resume while waiting out a retry backoff', () => {
+  latest().open(); latest().onerror?.();
+  expect(FakeSocket.instances).toHaveLength(1);
+  resumeOn('online');
+  expect(FakeSocket.instances).toHaveLength(2);
+  // The cancelled 500ms backoff retry must not open a third socket.
+  vi.advanceTimersByTime(600);
+  expect(FakeSocket.instances).toHaveLength(2);
   ready();
+  expect(FakeSocket.instances).toHaveLength(2);
 });
 
 it('repeated resume events do not postpone a pending heartbeat timeout', () => {

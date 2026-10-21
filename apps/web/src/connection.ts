@@ -11,7 +11,6 @@ export function connectSocket(options: {
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   let deadline: ReturnType<typeof setTimeout> | undefined;
   let heartbeat: ReturnType<typeof setTimeout> | undefined;
-  let lastReceived = 0;
 
   const current = (ws: WebSocket) => !stopped && socket === ws;
   const clearTimers = () => {
@@ -41,11 +40,15 @@ export function connectSocket(options: {
     try { socket.send(data); return true; }
     catch { failed(); return false; }
   };
-  const probe = () => {
-    if (!socket || socket.readyState !== WebSocket.OPEN || deadline !== undefined) return;
+  const probe = (timeoutMs = 10000) => {
+    // A pending deadline means a handshake or an earlier probe is already being timed.
+    if (!socket || deadline !== undefined) return;
+    // CLOSING or CLOSED before onclose fired: don't wait for the browser to report it.
+    if (socket.readyState !== WebSocket.OPEN) { failed(); return; }
     clearTimeout(heartbeat);
-    // Any server message proves the connection is alive; silence for 10s does not.
-    deadline = setTimeout(failed, 10000);
+    heartbeat = undefined;
+    // Any server message proves the connection is alive; silence until the deadline does not.
+    deadline = setTimeout(failed, timeoutMs);
     send(JSON.stringify({ t: 'ping' }));
   };
   function connect() {
@@ -64,7 +67,6 @@ export function connectSocket(options: {
       ws.onmessage = ev => {
         if (!current(ws)) return;
         retry = 500;
-        lastReceived = Date.now();
         clearTimers();
         heartbeat = setTimeout(probe, 20000);
         options.onMessage(String(ev.data));
@@ -74,13 +76,15 @@ export function connectSocket(options: {
   }
   const resume = () => {
     if (stopped) return;
-    if (socket?.readyState === WebSocket.OPEN && Date.now() - lastReceived < 20000) {
-      probe();
+    // Waiting out a retry backoff: the page or network is back, so try now.
+    if (!socket) {
+      clearTimeout(retryTimer);
+      connect();
       return;
     }
-    clearTimeout(retryTimer);
-    retire();
-    connect();
+    // Never close a socket that may still be healthy: the server unseats a lobby player
+    // whose socket closes. Ask instead, and reconnect only if no reply comes back.
+    probe(5000);
   };
   const visible = () => { if (document.visibilityState === 'visible') resume(); };
   window.addEventListener('online', resume);
