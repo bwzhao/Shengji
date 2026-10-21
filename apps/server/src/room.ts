@@ -171,9 +171,9 @@ export class Room {
     this.broadcastRoom();
   }
 
-  /** 房主可以关，没有真人在线的房间谁都可以关 */
+  /** 只有房主能关；没人在线的房间空闲两小时后由 registry.gc 回收，不用别人代关 */
   canClose(token: string): boolean {
-    return token === this.hostToken || !this.humansOnline();
+    return token === this.hostToken;
   }
 
   /** 关闭房间：通知所有成员回首页，清掉定时器 */

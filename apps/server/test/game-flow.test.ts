@@ -307,6 +307,32 @@ it('房主可以关闭房间，成员被送回首页，列表里消失', async (
   host.ws.close(); guest.ws.close();
 });
 
+it('房间里没有真人在线时，外人也不能关闭（#11）', async () => {
+  const host = new Client(server.port);
+  await host.open();
+  host.send({ t: 'hello', name: '房主己' });
+  await host.next(); await host.next();
+  host.send({ t: 'createRoom', players: 4 });
+  const code = (await host.until(isRoom)).room!.code;
+  host.send({ t: 'addBot', seat: 1 });
+  await host.until((m): m is Extract<ServerMessage, { t: 'room' }> => isRoom(m) && Boolean(m.room?.seats[1]?.isBot));
+  host.ws.close();
+  await expect.poll(() => server.registry.rooms.get(code)?.humansOnline()).toBe(false);
+
+  const stranger = new Client(server.port);
+  await stranger.open();
+  stranger.send({ t: 'hello', name: '路人庚' });
+  await stranger.next(); await stranger.next();
+  stranger.send({ t: 'listRooms' });
+  const list = await stranger.until((x): x is Extract<ServerMessage, { t: 'rooms' }> => x.t === 'rooms');
+  expect(list.rooms.find((r) => r.code === code)?.canClose).toBe(false);
+  stranger.send({ t: 'closeRoom', code });
+  const denied = await stranger.until((m): m is Extract<ServerMessage, { t: 'error' }> => m.t === 'error');
+  expect(denied.code).toBe('NOT_HOST');
+  expect(server.registry.rooms.has(code)).toBe(true);
+  stranger.ws.close();
+});
+
 it('加入不存在的房间和开局后加入都会被拒绝', async () => {
   const c = new Client(server.port);
   await c.open();

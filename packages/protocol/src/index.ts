@@ -81,7 +81,7 @@ export interface RoomSummary {
   readonly hostName: string;
   /** 有空位或机器人座位可以进 */
   readonly joinable: boolean;
-  /** 请求者能否关闭：自己是房主，或者房间里没有任何真人在线 */
+  /** 请求者能否关闭：只有房主能关 */
   readonly canClose: boolean;
   readonly lastActivity: number;
 }
