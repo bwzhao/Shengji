@@ -126,3 +126,49 @@ describe('生成的跟牌一定合法', () => {
     );
   });
 });
+
+describe('跟拖拉机（#16 里的例子）', () => {
+  // 级牌 2、红桃主，例子里的 A K Q 10 9 5 4 都是普通黑桃
+  const ctx2: TrumpCtx = { level: 2, trumpSuit: 'H' };
+  const RANK: Record<string, number> = { J: 11, Q: 12, K: 13, A: 14 };
+  /** 从手牌里按点数依次取黑桃，比如 '10 10 9 9' */
+  const pick = (hand: readonly Card[], spec: string): Card[] => {
+    const left = [...hand];
+    return spec.split(/\s+/).map((r) => {
+      const i = left.findIndex((c) => c.suit === 'S' && c.rank === (RANK[r] ?? Number(r)));
+      return left.splice(i, 1)[0] as Card;
+    });
+  };
+  const ok = (leadSpec: string, handSpec: string, play: string): boolean => {
+    const hand = cs(handSpec);
+    const lead = decompose(more(leadSpec), ctx2)!;
+    return validateFollow(lead, hand, pick(hand, play), ctx2) === null;
+  };
+  const HAND = '♠10 ♠10 ♠9 ♠9 ♠9 ♠5 ♠5 ♠4 ♦3 ♦7';
+
+  it('首出 AAKK、手里 10 10 9 9 9 5 5 4：要出两对，三条可以不拆', () => {
+    for (const p of ['10 10 9 9', '10 10 5 5', '9 9 5 5']) expect(ok('♠A ♠A ♠K ♠K', HAND, p)).toBe(true);
+    for (const p of ['9 9 9 4', '9 4 5 5', '9 4 10 10']) expect(ok('♠A ♠A ♠K ♠K', HAND, p)).toBe(false);
+  });
+
+  it('首出 AAKKQQ、手里 10 10 9 9 9 5 5 4：纯对子都要出，拆三条不影响要出的对子数', () => {
+    for (const p of ['10 10 9 9 5 5', '10 10 9 5 5 4']) expect(ok('♠A ♠A ♠K ♠K ♠Q ♠Q', HAND, p)).toBe(true);
+    for (const p of ['10 10 9 9 9 4', '5 5 9 9 9 4']) expect(ok('♠A ♠A ♠K ♠K ♠Q ♠Q', HAND, p)).toBe(false);
+  });
+
+  it('不同长的拖拉机也必须跟：长的拆一段出，短的整个出', () => {
+    // 首出两节，手里有三节：必须出其中相连的两节
+    expect(ok('♠A ♠A ♠K ♠K', '♠10 ♠10 ♠9 ♠9 ♠8 ♠8 ♠4 ♦3', '10 10 8 8')).toBe(false);
+    expect(ok('♠A ♠A ♠K ♠K', '♠10 ♠10 ♠9 ♠9 ♠8 ♠8 ♠4 ♦3', '9 9 8 8')).toBe(true);
+    // 首出三节，手里只有两节：两节必须出，再补一对
+    expect(ok('♠A ♠A ♠K ♠K ♠Q ♠Q', '♠10 ♠10 ♠9 ♠9 ♠5 ♠5 ♠7 ♠7 ♦3', '10 10 5 5 7 7')).toBe(false);
+    expect(ok('♠A ♠A ♠K ♠K ♠Q ♠Q', '♠10 ♠10 ♠9 ♠9 ♠5 ♠5 ♠7 ♠7 ♦3', '10 10 9 9 5 5')).toBe(true);
+  });
+
+  it('跟连续三条（泰坦尼克）：有三条出三条，没有三条给对子', () => {
+    expect(ok('♠A ♠A ♠A ♠K ♠K ♠K', '♠9 ♠9 ♠9 ♠5 ♠5 ♠4 ♠4 ♠3 ♦3', '9 9 9 5 5 4')).toBe(true);
+    expect(ok('♠A ♠A ♠A ♠K ♠K ♠K', '♠9 ♠9 ♠9 ♠5 ♠5 ♠4 ♠4 ♠3 ♦3', '9 9 5 5 4 4')).toBe(false);
+    expect(ok('♠A ♠A ♠A ♠K ♠K ♠K', '♠9 ♠9 ♠5 ♠5 ♠4 ♠4 ♠3 ♠6 ♦3', '9 9 5 5 4 3')).toBe(true);
+    expect(ok('♠A ♠A ♠A ♠K ♠K ♠K', '♠9 ♠9 ♠5 ♠5 ♠4 ♠4 ♠3 ♠6 ♦3', '9 5 4 3 6 5')).toBe(false);
+  });
+});
