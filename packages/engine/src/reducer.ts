@@ -158,6 +158,14 @@ export function tripleDeclarationTier(cards: readonly Card[]): number {
   return first.rank === 16 ? 3 : 2;
 }
 
+/**
+ * seat 亮主要用的级牌点数。还没定庄家（抢庄）时用自己的等级：首局大家都一样；
+ * 非首局底牌翻不出常主后重新抢庄，谁先亮出自己的级牌谁坐庄。定了庄家就用这一局的级牌。
+ */
+export function declareLevel(s: Pick<GameState, 'dealer' | 'level' | 'levels' | 'config'>, seat: Seat): number {
+  return s.dealer === null ? levelRank(s.levels[seat] ?? 0, s.config) : s.level;
+}
+
 /** 亮主合法性的输入：服务端用完整局面，客户端用 PlayerView，两边都有这三项 */
 export interface DeclarationContext {
   readonly config: GameConfig;
@@ -216,7 +224,8 @@ function declare(s: GameState, seat: Seat, ids: readonly string[]): ApplyResult 
   if (!hand) return fail('INVALID_ACTION', '座位不存在');
   const cards = findCards(hand, ids);
   if (!cards || cards.length === 0) return fail('CARDS_NOT_IN_HAND', '亮出的牌不在手中');
-  const err = checkDeclaration(s, seat, cards);
+  const level = declareLevel(s, seat);
+  const err = checkDeclaration({ ...s, level }, seat, cards);
   if (err) return { ok: false, error: err };
   const first = cards[0] as Card;
   const suit: Suit | null = first.suit === 'J' ? null : (first.suit as Suit);
@@ -228,8 +237,10 @@ function declare(s: GameState, seat: Seat, ids: readonly string[]): ApplyResult 
     declarationLog: [...(s.declarationLog ?? []), { kind, seat, cards, suit }],
     trumpSuit: suit,
     trumpDecided: true,
-    // 首局谁最终抢到主谁坐庄：被反主则庄家随之改变；非首局庄家已定，反主只改主花色
-    dealer: s.round === 1 ? seat : s.dealer,
+    // 首局谁最终抢到主谁坐庄：被反主则庄家随之改变。非首局庄家已定，反主只改主花色；
+    // 非首局重新抢庄时谁先亮谁坐庄，这一局打他的级，之后反主只改主花色
+    dealer: s.round === 1 ? seat : (s.dealer ?? seat),
+    level: s.dealer === null ? level : s.level,
   };
   return ok(next, [{ type: 'declared', seat, cards, suit, count }]);
 }
@@ -240,15 +251,25 @@ function closeDeclaring(s: GameState): ApplyResult {
   let next = s;
   if (!s.declaration) {
     if (s.dealer === null) {
+      // 抢庄时没人亮（首局，或非首局重新抢庄）：重新发牌再抢
       if (!s.config.redealIfNoDeclarerFirstRound) return fail('INVALID_ACTION', '首局无人亮主且未配置重发');
-      // 发牌轮数是人数的整数倍，此时 dealTurn 已回到首局的起点
+      // 发牌轮数是人数的整数倍，此时 dealTurn 已回到这一轮发牌的起点
       next = startDealing({ ...s, redeals: s.redeals + 1 }, s.dealTurn);
       return ok(next, [{ type: 'redeal' }]);
     }
-    const flipped = [...s.bottom].reverse().find((c) => c.suit !== 'J');
-    const trumpSuit = flipped ? (flipped.suit as Suit) : null;
-    next = { ...s, trumpSuit, trumpDecided: true, declarationLog: [...(s.declarationLog ?? []), { kind: 'bottom', card: flipped ?? null, suit: trumpSuit }] };
-    events.push({ type: 'declaringClosed', trumpSuit, byBottom: true });
+    // 非首局无人亮主：底牌一张张翻开给所有人看，翻到第一张常主（级牌或王）为止，级牌定它的花色，王打无主
+    const order = [...s.bottom].reverse();
+    const at = order.findIndex((c) => c.suit === 'J' || c.rank === s.level);
+    if (at < 0) {
+      // 底牌里没有常主：重新发牌抢庄，谁先亮出自己的级牌谁坐庄
+      next = startDealing({ ...s, dealer: null, redeals: s.redeals + 1 }, nextSeat(s, s.dealer));
+      return ok(next, [{ type: 'regrab', flipped: order }]);
+    }
+    const flipped = order.slice(0, at + 1);
+    const card = flipped[at] as Card;
+    const trumpSuit = card.suit === 'J' ? null : (card.suit as Suit);
+    next = { ...s, trumpSuit, trumpDecided: true, declarationLog: [...(s.declarationLog ?? []), { kind: 'bottom', card, suit: trumpSuit, flipped }] };
+    events.push({ type: 'declaringClosed', trumpSuit, byBottom: true, flipped });
   } else {
     events.push({ type: 'declaringClosed', trumpSuit: s.trumpSuit, byBottom: false });
   }
@@ -458,11 +479,12 @@ function endRound(s: GameState, lastWinner: Seat, lastLead: Decomposition, event
 export function restartRound(s: GameState): { state: GameState; events: GameEvent[] } {
   if (s.phase === 'gameOver') return { state: s, events: [] };
   const firstRound = s.round === 1;
+  // 首局重发时庄家清空；非首局重新抢庄中（还没定庄家）重发，照样接着抢
   const dealer = firstRound ? null : s.dealer;
   const base: GameState = {
     ...s,
     dealer,
-    level: dealer === null ? levelRank(0, s.config) : levelRank(s.levels[dealer] as number, s.config),
+    level: dealer === null ? (firstRound ? levelRank(0, s.config) : s.level) : levelRank(s.levels[dealer] as number, s.config),
     redeals: s.redeals + 1,
     winners: null,
   };

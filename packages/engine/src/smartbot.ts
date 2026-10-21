@@ -7,7 +7,7 @@ import { RANKS, SUITS, cardPoints, identityKey, sumPoints, type Card, type Suit 
 import { decompose, poolOf, type Component } from './combos.ts';
 import { handSize } from './config.ts';
 import { generateFollow, generateFollowWith, highestChooser, lowestChooser, validateFollow, type FollowChooser } from './follow.ts';
-import { ctxOf, currentTurn, dealerTeam } from './reducer.ts';
+import { ctxOf, currentTurn, dealerTeam, declareLevel } from './reducer.ts';
 import type { Rng } from './rng.ts';
 import type { Action, FriendCallSpec, GameState, Seat } from './state.ts';
 import { trickWinner, type TrickPlay } from './trick.ts';
@@ -167,8 +167,10 @@ export function sidesOf(s: GameState, seat: Seat): Sides {
 
 // ---------- 亮主 ----------
 
-export function smartDeclare(s: GameState, seat: Seat, _rng: Rng, level: SmartLevel = 2): Action | null {
-  if (s.phase !== 'dealing' && s.phase !== 'declaring') return null;
+export function smartDeclare(state: GameState, seat: Seat, _rng: Rng, level: SmartLevel = 2): Action | null {
+  if (state.phase !== 'dealing' && state.phase !== 'declaring') return null;
+  // 抢庄时（还没定庄家）各人亮自己的级牌，按自己的级来评估
+  const s = state.dealer === null ? { ...state, level: declareLevel(state, seat) } : state;
   const options = possibleDeclarations(s, seat);
   if (options.length === 0) return null;
   return featuresOf(level).declare ? declareV2(s, seat, options) : declareV1(s, seat, options);
@@ -283,8 +285,8 @@ function declareV2(s: GameState, seat: Seat, options: Card[][]): Action | null {
   if (best.mine) return { type: 'declare', seat, cards: best.cards.map((c) => c.id) };
   const count = best.cards.length;
   let threshold = count >= 3 ? 0 : count === 2 ? smartTuning.declarePair : smartTuning.declareSingle;
-  // 首局无人亮主：见级牌就亮抢庄，坐庄有底牌和先手，之后抓到第二张再加固
-  if (s.round === 1 && !current && best.cards[0]?.suit !== 'J') threshold = 0;
+  // 抢庄（首局，或非首局底牌没有常主后重新抢庄）还没人亮：见级牌就亮，坐庄有底牌和先手，之后抓到第二张再加固
+  if (s.dealer === null && !current && best.cards[0]?.suit !== 'J') threshold = 0;
   // 发牌早期手牌还不全，谨慎一点；快发完了还没人亮，就放低要求抢庄
   if (progress < 0.5) threshold += smartTuning.earlyPenalty;
   if (!current && progress > 0.85) threshold -= smartTuning.lateBonus;

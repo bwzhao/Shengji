@@ -2,7 +2,7 @@
 import { cardPoints, type Card, type Suit } from './cards.ts';
 import type { GameConfig } from './config.ts';
 import type { LevelIndex } from './levels.ts';
-import { currentTurn, dealerTeam } from './reducer.ts';
+import { currentTurn, dealerTeam, declareLevel } from './reducer.ts';
 import type { Declaration, DeclarationRecord, FriendCall, GameState, Phase, RoundResult, Seat, Trick, TrickRecord } from './state.ts';
 import { sortCards, suitDisplayOrder } from './trump.ts';
 
@@ -82,12 +82,13 @@ export function viewFor(s: GameState, seat: Seat): PlayerView {
     phase: s.phase,
     levels: s.levels,
     dealer: s.dealer,
-    level: s.level,
+    // 还没定庄家时各人亮自己的级牌，看到的也是自己的级
+    level: declareLevel(s, seat),
     trumpSuit: s.trumpSuit,
     trumpDecided: s.trumpDecided,
     declaration: s.declaration,
     declarationLog: s.declarationLog ?? [],
-    hand: sortCards(s.hands[seat] ?? [], { level: s.level, trumpSuit: s.trumpSuit }),
+    hand: sortCards(s.hands[seat] ?? [], { level: declareLevel(s, seat), trumpSuit: s.trumpSuit }),
     handCounts: s.hands.map((h) => h.length),
     bottomCount: s.bottom.length,
     bottom: showBottom ? s.bottom : null,

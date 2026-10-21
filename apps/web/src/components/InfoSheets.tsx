@@ -33,7 +33,7 @@ export function DeclarationLogSheet({ view, name, onClose }: { view: PlayerView;
                 <>
                   <span className="dl-who">无人亮主</span>
                   <span className="dl-kind">翻底</span>
-                  {e.card && <CardRow cards={[e.card]} small />}
+                  {(e.flipped ?? (e.card ? [e.card] : [])).length > 0 && <CardRow cards={e.flipped ?? [e.card as Card]} small />}
                   <span className="dl-suit">定{suitName(e.suit)}</span>
                 </>
               ) : (

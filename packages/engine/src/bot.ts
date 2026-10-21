@@ -2,7 +2,7 @@
 import { RANKS, SUITS, identityKey, type Card, type Suit } from './cards.ts';
 import { decompose } from './combos.ts';
 import { generateFollow } from './follow.ts';
-import { checkDeclaration, ctxOf, currentTurn, type DeclarationContext } from './reducer.ts';
+import { checkDeclaration, ctxOf, currentTurn, declareLevel, type DeclarationContext } from './reducer.ts';
 import type { Rng } from './rng.ts';
 import type { Action, FriendCallSpec, GameState, Seat } from './state.ts';
 import { groupOf, type Group } from './trump.ts';
@@ -18,7 +18,8 @@ export const defaultBotOptions: BotOptions = { declareProbability: 0.5, throwPro
 
 /** 手中所有可以压过当前亮主的亮法。 */
 export function possibleDeclarations(s: GameState, seat: Seat): Card[][] {
-  return declarationCandidates(s.hands[seat] ?? [], s, seat);
+  // 抢庄时（还没定庄家）各人亮自己的级牌
+  return declarationCandidates(s.hands[seat] ?? [], { ...s, level: declareLevel(s, seat) }, seat);
 }
 
 /**
