@@ -418,6 +418,7 @@ A/B 结果（`pnpm sim -- --smart ab`，偶数座位新版、奇数座位旧版�
 - Fastify 同时托管静态文件和 `/ws`，`/healthz` 给 Fly 健康检查。
 - 自定义域名走 `fly certs`，HTTPS 是 PWA 和微信内置浏览器的硬要求。
 - 1GB 卷挂在 `/data` 存房间快照。
+- 自动部署：GitHub Actions 在 main 有新提交时先跑类型检查、测试和前端打包，通过后 `flyctl deploy --remote-only --ha=false`（仓库 secret `FLY_API_TOKEN`）；PR 上只跑检查。部署重启时快照落盘，客户端几秒内自动重连，牌局接着打。
 - 环境变量只有 `PORT` 和 `SNAPSHOT_DIR`，没有秘密。
 
 ## 5. 测试
