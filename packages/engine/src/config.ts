@@ -18,13 +18,6 @@ export interface GameConfig {
   readonly levelStep: number;
   /** 甩牌失败每张罚分 */
   readonly throwPenaltyPerCard: number;
-  /** 抠底倍数：按最后一墩首出的最高牌型 */
-  readonly bottomMultiplier: {
-    readonly single: number;
-    readonly pair: number;
-    readonly triple: number;
-    readonly tractor: number;
-  };
   /** 同张数是否可以反主。默认 false：只看张数，同张数先亮者有效 */
   readonly allowEqualCountOverride: boolean;
   /** 庄家自己打出的朋友牌是否计入序号 */
@@ -52,7 +45,6 @@ export function defaultConfig(players: PlayerCount): GameConfig {
       friendCount: 0,
       levelStep: 40,
       throwPenaltyPerCard: 10,
-      bottomMultiplier: { single: 2, pair: 4, triple: 8, tractor: 8 },
       // 四人升级：一对王可以盖一对级牌，一对大王盖一对小王
       allowEqualCountOverride: true,
       dealerCountsForFriend: true,
@@ -71,7 +63,6 @@ export function defaultConfig(players: PlayerCount): GameConfig {
     friendCount: five ? 1 : 2,
     levelStep: five ? 60 : 50,
     throwPenaltyPerCard: 10,
-    bottomMultiplier: { single: 2, pair: 4, triple: 8, tractor: 8 },
     allowEqualCountOverride: false,
     dealerCountsForFriend: true,
     redealIfNoDeclarerFirstRound: true,

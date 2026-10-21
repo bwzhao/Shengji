@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { decompose } from '../src/combos.ts';
-import { defaultConfig } from '../src/config.ts';
 import { bottomMultiplier, trickWinner } from '../src/trick.ts';
 import { H5, more, resetDecks } from './helpers.ts';
 import type { TrumpCtx } from '../src/trump.ts';
@@ -52,13 +51,18 @@ describe('赢墩判定', () => {
     expect(winner(['♠K ♠K ♠3', '♥7 ♥8 ♥2'])).toBe(0);
   });
 
-  it('抠底倍数按首出最高牌型', () => {
-    const cfg = defaultConfig(6);
+  it('抠底倍数是 2 的 n 次方，n 是首出里最大单一牌型的张数，上不封顶', () => {
     const d = (s: string) => { resetDecks(); return decompose(more(s), H5)!; };
-    expect(bottomMultiplier(d('♠A'), cfg)).toBe(2);
-    expect(bottomMultiplier(d('♠A ♠A'), cfg)).toBe(4);
-    expect(bottomMultiplier(d('♠A ♠A ♠A'), cfg)).toBe(8);
-    expect(bottomMultiplier(d('♠A ♠A ♠K ♠K'), cfg)).toBe(8);
-    expect(bottomMultiplier(d('♠A ♠A ♠3'), cfg)).toBe(4);
+    expect(bottomMultiplier(d('♠A'))).toBe(2);
+    expect(bottomMultiplier(d('♠A ♠A'))).toBe(4);
+    expect(bottomMultiplier(d('♠A ♠A ♠A'))).toBe(8);
+    expect(bottomMultiplier(d('♠A ♠A ♠K ♠K'))).toBe(16);
+    expect(bottomMultiplier(d('♠A ♠A ♠K ♠K ♠Q ♠Q'))).toBe(64);
+    // 连续三条（泰坦尼克）
+    expect(bottomMultiplier(d('♠A ♠A ♠A ♠K ♠K ♠K'))).toBe(64);
+    // 甩牌按其中最大的牌型
+    expect(bottomMultiplier(d('♠A ♠K ♠3'))).toBe(2);
+    expect(bottomMultiplier(d('♠A ♠A ♠3'))).toBe(4);
+    expect(bottomMultiplier(d('♠A ♠A ♠K ♠K ♠3'))).toBe(16);
   });
 });

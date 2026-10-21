@@ -414,6 +414,39 @@ describe('自己亮的主只能加固', () => {
     }
   });
 
+  it('三张亮主：三张大王 > 三张小王 > 三张一样的级牌 > 三张不一样的王，同一档先亮者有效', async () => {
+    const { checkDeclaration } = await import('../src/reducer.ts');
+    const c = (suit: 'S' | 'H' | 'D' | 'C' | 'J', rank: number, deck = 0) => ({ id: `${suit}${rank}-${deck}`, suit, rank, deck });
+    const big3 = [c('J', 16), c('J', 16, 1), c('J', 16, 2)];
+    const small3 = [c('J', 15), c('J', 15, 1), c('J', 15, 2)];
+    const mixed3 = [c('J', 16), c('J', 15), c('J', 15, 1)];
+    const level3 = (suit: 'S' | 'H') => [c(suit, 5), c(suit, 5, 1), c(suit, 5, 2)];
+    for (const players of [5, 6] as const) {
+      const config = defaultConfig(players);
+      const by = (cards: ReturnType<typeof c>[], suit: 'H' | null) => ({ config, level: 5, declaration: { seat: 1, cards, suit, count: cards.length } });
+      // 三张不一样的王：三张级牌、三张一样的王都能反
+      expect(checkDeclaration(by(mixed3, null), 0, level3('S'))).toBeNull();
+      expect(checkDeclaration(by(mixed3, null), 0, small3)).toBeNull();
+      expect(checkDeclaration(by(mixed3, null), 0, big3)).toBeNull();
+      expect(checkDeclaration(by(mixed3, null), 0, [c('J', 16), c('J', 16, 1), c('J', 15, 2)])?.code).toBe('DECLARATION_TOO_WEAK');
+      // 三张级牌：只有三张一样的王能反
+      expect(checkDeclaration(by(level3('H'), 'H'), 0, small3)).toBeNull();
+      expect(checkDeclaration(by(level3('H'), 'H'), 0, big3)).toBeNull();
+      expect(checkDeclaration(by(level3('H'), 'H'), 0, level3('S'))?.code).toBe('DECLARATION_TOO_WEAK');
+      expect(checkDeclaration(by(level3('H'), 'H'), 0, mixed3)?.code).toBe('DECLARATION_TOO_WEAK');
+      // 三张小王只有三张大王能反；三张大王最大
+      expect(checkDeclaration(by(small3, null), 0, big3)).toBeNull();
+      expect(checkDeclaration(by(small3, null), 0, [c('J', 15, 3), c('J', 15, 4), c('J', 15, 5)])?.code).toBe('DECLARATION_TOO_WEAK');
+      expect(checkDeclaration(by(small3, null), 0, level3('S'))?.code).toBe('DECLARATION_TOO_WEAK');
+      expect(checkDeclaration(by(big3, null), 0, small3)?.code).toBe('DECLARATION_TOO_WEAK');
+      expect(checkDeclaration(by(big3, null), 0, level3('S'))?.code).toBe('DECLARATION_TOO_WEAK');
+      expect(checkDeclaration(by(big3, null), 0, [c('J', 16, 3), c('J', 16, 4), c('J', 16, 5)])?.code).toBe('DECLARATION_TOO_WEAK');
+      // 张数仍然优先：三张都能反两张，两张反不了三张
+      expect(checkDeclaration(by([c('J', 16), c('J', 16, 1)], null), 0, mixed3)).toBeNull();
+      expect(checkDeclaration(by(mixed3, null), 0, [c('S', 5), c('S', 5, 1)])?.code).toBe('DECLARATION_TOO_WEAK');
+    }
+  });
+
   it('机器人自对弈里从不改亮自己已亮的花色', () => {
     let switches = 0, reinforces = 0;
     // 用事件序列检查：同一个人连续两次亮主时花色必须相同
