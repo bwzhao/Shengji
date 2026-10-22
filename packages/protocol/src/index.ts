@@ -24,6 +24,8 @@ export const clientMessageSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('removeBot'), seat: z.number().int().min(0).max(5) }),
   z.object({ t: z.literal('start') }),
   z.object({ t: z.literal('setBots'), strength: z.enum(['normal', 'strong']) }),
+  /** 房主设置出牌记录能不能看别人出的牌 */
+  z.object({ t: z.literal('setPlayLog'), open: z.boolean() }),
   z.object({ t: z.literal('declare'), cards: cardIds }),
   /** 亮主阶段「不反」：在线真人都点了就提前结束倒计时 */
   z.object({ t: z.literal('passDeclare') }),
@@ -69,6 +71,8 @@ export interface RoomInfo {
   readonly started: boolean;
   /** 机器人强度：normal 规则机器人反应快；strong 搜索机器人更会打但每手多想一秒 */
   readonly botStrength: 'normal' | 'strong';
+  /** 出牌记录能不能看别人出的牌；默认 false，只看自己的 */
+  readonly playLogOpen: boolean;
   /** 自己的座位，未坐下为 null */
   readonly you: Seat | null;
   readonly youAreHost: boolean;

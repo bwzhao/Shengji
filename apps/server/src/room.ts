@@ -1,7 +1,7 @@
 /** 一个房间：大厅座位管理 + 驾驭引擎状态机 + 机器人 + 广播。 */
 import {
   applyAction, createGame, createRng, currentTurn, defaultConfig, waitingSeats, LEVEL_SEQUENCE, restartRound, smartAction, smartDeclare, tuneForMode, viewFor,
-  type Action, type GameConfig, type GameEvent, type GameState, type Rng, type Seat,
+  type Action, type GameConfig, type GameEvent, type GameState, type PlayerView, type Rng, type Seat,
 } from '@shengji/engine';
 import type { RoomInfo, RoomSummary, RoundReplay, ServerMessage } from '@shengji/protocol';
 import type { WebSocket } from 'ws';
@@ -51,6 +51,8 @@ export class Room {
   /** 最近几局的操作日志，用于回放 */
   roundLogs: RoundReplay[] = [];
   botStrength: 'normal' | 'strong' = 'strong';
+  /** 出牌记录能不能看别人出的牌；默认锁住，只看自己的，房主可以打开 */
+  playLogOpen = false;
   /** 正在进行的异步搜索的序号，用来丢弃过期结果 */
   private searchEpoch = 0;
   private readonly rng: Rng;
@@ -97,6 +99,7 @@ export class Room {
       lastActivity: this.lastActivity,
       roundLogs: this.roundLogs,
       botStrength: this.botStrength,
+      playLogOpen: this.playLogOpen,
     };
   }
 
@@ -109,6 +112,7 @@ export class Room {
     room.lastActivity = snap.lastActivity;
     room.roundLogs = [...(snap.roundLogs ?? [])];
     room.botStrength = snap.botStrength ?? 'strong';
+    room.playLogOpen = snap.playLogOpen ?? false;
     return room;
   }
 
@@ -173,6 +177,7 @@ export class Room {
       }),
       started: this.started,
       botStrength: this.botStrength,
+      playLogOpen: this.playLogOpen,
       you: this.seatOf(forToken),
       youAreHost: forToken === this.hostToken,
     };
@@ -182,6 +187,15 @@ export class Room {
     if (token !== this.hostToken) return this.error(token, 'NOT_HOST', '只有房主能设置机器人');
     this.botStrength = strength;
     this.broadcastRoom();
+  }
+
+  setPlayLog(token: string, open: boolean): void {
+    if (token !== this.hostToken) return this.error(token, 'NOT_HOST', '只有房主能设置出牌记录');
+    this.playLogOpen = open;
+    this.broadcastRoom();
+    // 开局后改的话，大家手里的出牌记录跟着变
+    this.broadcastState([]);
+    this.onChange();
   }
 
   /** 只有房主能关；没人在线的房间空闲两小时后由 registry.gc 回收，不用别人代关 */
@@ -234,6 +248,13 @@ export class Room {
     this.onChange();
   }
 
+  /** 发给某个座位的视图；出牌记录没开放时每一墩只留他自己出的牌（上一墩 lastTrick 照常完整，供「上一轮」） */
+  private viewOf(seat: Seat): PlayerView {
+    const view = viewFor(this.state as GameState, seat);
+    if (this.playLogOpen) return view;
+    return { ...view, tricks: view.tricks.map((t) => ({ ...t, plays: t.plays.filter((p) => p.seat === seat) })) };
+  }
+
   private broadcastState(events: readonly GameEvent[]): void {
     if (!this.state) return;
     this.seq++;
@@ -242,7 +263,7 @@ export class Room {
       const m = this.members.get(slot.token);
       if (!m) continue;
       const filtered = events.map((e) => (e.type === 'cardDealt' && e.seat !== seat ? { ...e, card: hiddenCard } : e));
-      this.send(m, { t: 'state', seq: this.seq, view: viewFor(this.state, seat), events: filtered, ...this.declareTimer(), ...this.chaodiTimerInfo(), ...this.guoheTimerInfo() });
+      this.send(m, { t: 'state', seq: this.seq, view: this.viewOf(seat), events: filtered, ...this.declareTimer(), ...this.chaodiTimerInfo(), ...this.guoheTimerInfo() });
     }
   }
 
@@ -270,7 +291,7 @@ export class Room {
     this.send(m, { t: 'room', room: this.info(token) });
     const seat = this.seatOf(token);
     if (this.state && seat !== null) {
-      this.send(m, { t: 'state', seq: this.seq, view: viewFor(this.state, seat), events: [], ...this.declareTimer(), ...this.chaodiTimerInfo(), ...this.guoheTimerInfo() });
+      this.send(m, { t: 'state', seq: this.seq, view: this.viewOf(seat), events: [], ...this.declareTimer(), ...this.chaodiTimerInfo(), ...this.guoheTimerInfo() });
     }
   }
 

@@ -15,6 +15,8 @@ export interface RoomSnapshot {
   readonly lastActivity: number;
   readonly roundLogs?: readonly RoundReplay[];
   readonly botStrength?: 'normal' | 'strong';
+  /** 旧存档里没有，按锁住处理 */
+  readonly playLogOpen?: boolean;
 }
 
 export interface SessionSnapshot {

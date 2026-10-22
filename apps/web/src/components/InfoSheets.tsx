@@ -53,16 +53,21 @@ export function DeclarationLogSheet({ view, name, onClose }: { view: PlayerView;
   );
 }
 
-/** 本局每一墩每人出的牌，也可以只看自己出过的 */
-export function PlayLogSheet({ view, name, onClose }: { view: PlayerView; name: (s: Seat) => string; onClose: () => void }) {
-  const [mineOnly, setMineOnly] = useState(false);
+/**
+ * 本局每一墩自己出的牌。房主开放后也能看每墩所有人出的牌；没开放时「每墩全部」锁住，
+ * 服务端也只发自己出的牌。
+ */
+export function PlayLogSheet({ view, name, open, onClose }: { view: PlayerView; name: (s: Seat) => string; open: boolean; onClose: () => void }) {
+  const [allPlays, setAllPlays] = useState(false);
+  const mineOnly = !open || !allPlays;
   const ctx = { level: view.level, trumpSuit: view.trumpSuit };
   return (
     <Sheet title="出牌记录" onClose={onClose}>
       <div className="seg">
-        <button className={mineOnly ? '' : 'on'} onClick={() => setMineOnly(false)}>每墩全部</button>
-        <button className={mineOnly ? 'on' : ''} onClick={() => setMineOnly(true)}>只看我出的</button>
+        <button className={mineOnly ? 'on' : ''} onClick={() => setAllPlays(false)}>只看我出的</button>
+        <button className={mineOnly ? '' : 'on'} disabled={!open} onClick={() => setAllPlays(true)}>{open ? '每墩全部' : '🔒 每墩全部'}</button>
       </div>
+      {!open && <div className="hint">房主没有开放查看别人出的牌，开局前可以在房间里打开。</div>}
       {view.tricks.length === 0 ? (
         <div className="hint">这一局还没有打完的墩</div>
       ) : (

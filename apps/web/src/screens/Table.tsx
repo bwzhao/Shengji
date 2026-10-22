@@ -639,7 +639,7 @@ export function Table({ client }: { client: GameClient }) {
 
       {sheet === 'declarations' && <DeclarationLogSheet view={view} name={name} onClose={() => setSheet(null)} />}
       {sheet === 'bottom' && myBottom && <BottomSheet view={view} cards={myBottom} onClose={() => setSheet(null)} />}
-      {sheet === 'plays' && <PlayLogSheet view={view} name={name} onClose={() => setSheet(null)} />}
+      {sheet === 'plays' && <PlayLogSheet view={view} name={name} open={room.playLogOpen} onClose={() => setSheet(null)} />}
 
       {(view.phase === 'roundEnd' || view.phase === 'gameOver') && view.lastRound && (
         <RoundEnd
