@@ -168,3 +168,21 @@ export function summarizePointCards(cards: readonly Card[], trumpSuit: Suit | nu
   }
   return out;
 }
+
+/**
+ * 观看者看到的局面（GitHub issue #8）：像电视转播，跟着 seat 看他的手牌（可以换着看每个人的），
+ * 底牌和过河交换的牌也都看得到。观看者不能操作，服务端只把它发给没坐下的人。
+ */
+export function spectatorView(s: GameState, seat: Seat): PlayerView {
+  const v = viewFor(s, seat);
+  return {
+    ...v,
+    bottom: s.bottom.length > 0 ? s.bottom : v.bottom,
+    guohe: s.guohe
+      ? {
+          asked: s.guohe.asked,
+          crossings: s.guohe.crossings.map((c) => ({ from: c.from, to: c.to, given: c.given, returned: c.returned, done: c.returned !== null })),
+        }
+      : null,
+  };
+}

@@ -16,7 +16,8 @@ export const clientMessageSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('createRoom'), players: z.union([z.literal(4), z.literal(5), z.literal(6)]) }),
   z.object({ t: z.literal('listRooms') }),
   z.object({ t: z.literal('closeRoom'), code: z.string().trim().length(4).optional() }),
-  z.object({ t: z.literal('joinRoom'), code: z.string().trim().length(4) }),
+  /** watch：只观看，不接管机器人座位。开局后又没有机器人座位可接管时，不带 watch 也会进来观看 */
+  z.object({ t: z.literal('joinRoom'), code: z.string().trim().length(4), watch: z.boolean().optional() }),
   z.object({ t: z.literal('leaveRoom') }),
   z.object({ t: z.literal('sit'), seat: z.number().int().min(0).max(5) }),
   z.object({ t: z.literal('stand') }),
@@ -26,6 +27,8 @@ export const clientMessageSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('setBots'), strength: z.enum(['normal', 'strong']) }),
   /** 房主设置出牌记录能不能看别人出的牌 */
   z.object({ t: z.literal('setPlayLog'), open: z.boolean() }),
+  /** 观看者换着看某个座位的手牌 */
+  z.object({ t: z.literal('watch'), seat: z.number().int().min(0).max(5) }),
   z.object({ t: z.literal('declare'), cards: cardIds }),
   /** 亮主阶段「不反」：在线真人都点了就提前结束倒计时 */
   z.object({ t: z.literal('passDeclare') }),
@@ -76,6 +79,8 @@ export interface RoomInfo {
   readonly botStrength: 'normal' | 'strong';
   /** 出牌记录能不能看别人出的牌；默认 false，只看自己的 */
   readonly playLogOpen: boolean;
+  /** 在线、没坐下的人（开局后就是观看者）的名字 */
+  readonly spectators: readonly string[];
   /** 自己的座位，未坐下为 null */
   readonly you: Seat | null;
   readonly youAreHost: boolean;
@@ -95,6 +100,8 @@ export interface RoomSummary {
   readonly hostName: string;
   /** 有空位或机器人座位可以进 */
   readonly joinable: boolean;
+  /** 在线观看的人数 */
+  readonly spectators: number;
   /** 请求者能否关闭：只有房主能关 */
   readonly canClose: boolean;
   readonly lastActivity: number;

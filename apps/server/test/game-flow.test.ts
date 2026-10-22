@@ -344,3 +344,84 @@ it('加入不存在的房间和开局后加入都会被拒绝', async () => {
   expect(e.t).toBe('error');
   c.ws.close();
 });
+
+it('观看：开局后从首页点「观看」进来，看得到别人的手牌，可以换着看；坐着的人看到观看人数（#8）', async () => {
+  const host = new Client(server.port);
+  await host.open();
+  host.send({ t: 'hello', name: '房主' });
+  await host.next();
+  await host.next();
+  host.send({ t: 'createRoom', players: 4 });
+  const created = await host.until(isRoom);
+  const code = created.room!.code;
+  for (let seat = 1; seat < 4; seat++) host.send({ t: 'addBot', seat });
+  await host.until((m): m is Extract<ServerMessage, { t: 'room' }> => isRoom(m) && m.room?.seats.every(Boolean) === true);
+  host.send({ t: 'start' });
+  await host.until(isState);
+
+  const fan = new Client(server.port);
+  await fan.open();
+  fan.send({ t: 'hello', name: '观众' });
+  await fan.next();
+  await fan.next();
+  fan.send({ t: 'joinRoom', code, watch: true });
+  const info = await fan.until(isRoom);
+  expect(info.room?.you).toBeNull();
+  expect(info.room?.spectators).toEqual(['观众']);
+  // 机器人座位没被接管
+  expect(info.room?.seats.filter((s) => s?.isBot).length).toBe(3);
+  // 默认看房主的牌，发牌事件不遮
+  const st = await fan.until((m): m is Extract<ServerMessage, { t: 'state' }> => isState(m) && m.view.hand.length > 0);
+  expect(st.view.seat).toBe(0);
+  await host.until((m): m is Extract<ServerMessage, { t: 'room' }> => isRoom(m) && m.room?.spectators.length === 1);
+
+  fan.send({ t: 'watch', seat: 2 });
+  // 测试里发牌很快，可能正好赶上重发，等到发到牌再看
+  const switched = await fan.until((m): m is Extract<ServerMessage, { t: 'state' }> => isState(m) && m.view.seat === 2 && m.view.hand.length > 0);
+  expect(switched.view.hand.every((c) => c.id !== 'hidden')).toBe(true);
+  // 观看者不能操作
+  fan.send({ t: 'passDeclare' });
+  expect((await fan.until((m): m is Extract<ServerMessage, { t: 'error' }> => m.t === 'error')).t).toBe('error');
+
+  fan.send({ t: 'leaveRoom' });
+  await host.until((m): m is Extract<ServerMessage, { t: 'room' }> => isRoom(m) && m.room?.spectators.length === 0);
+  fan.ws.close();
+  host.ws.close();
+}, 30_000);
+
+it('开局后没有机器人座位可接管时，输入房间号进来就是观看', async () => {
+  const host = new Client(server.port);
+  await host.open();
+  host.send({ t: 'hello', name: '房主' });
+  await host.next();
+  await host.next();
+  host.send({ t: 'createRoom', players: 4 });
+  const code = (await host.until(isRoom)).room!.code;
+  for (let seat = 1; seat < 4; seat++) host.send({ t: 'addBot', seat });
+  await host.until((m): m is Extract<ServerMessage, { t: 'room' }> => isRoom(m) && m.room?.seats.every(Boolean) === true);
+  host.send({ t: 'start' });
+  await host.until(isState);
+  // 先来三个人把机器人座位接管完
+  const others: Client[] = [];
+  for (let i = 0; i < 3; i++) {
+    const c = new Client(server.port);
+    await c.open();
+    c.send({ t: 'hello', name: `玩家${i}` });
+    await c.next();
+    await c.next();
+    c.send({ t: 'joinRoom', code });
+    const r = await c.until(isRoom);
+    expect(r.room?.you).not.toBeNull();
+    others.push(c);
+  }
+  const late = new Client(server.port);
+  await late.open();
+  late.send({ t: 'hello', name: '迟到' });
+  await late.next();
+  await late.next();
+  late.send({ t: 'joinRoom', code });
+  const r = await late.until(isRoom);
+  expect(r.room?.you).toBeNull();
+  expect(r.room?.spectators).toContain('迟到');
+  for (const c of [host, late, ...others]) c.ws.close();
+}, 30_000);
