@@ -27,6 +27,9 @@ export const clientMessageSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('declare'), cards: cardIds }),
   /** 亮主阶段「不反」：在线真人都点了就提前结束倒计时 */
   z.object({ t: z.literal('passDeclare') }),
+  /** 四人抄底：轮到自己时用一对常主抄底，或不抄 */
+  z.object({ t: z.literal('chaodi'), cards: cardIds }),
+  z.object({ t: z.literal('passChaodi') }),
   z.object({ t: z.literal('exchangeBottom'), cards: cardIds }),
   z.object({ t: z.literal('callFriend'), calls: z.array(friendCallSchema).min(1).max(2) }),
   z.object({ t: z.literal('play'), cards: cardIds }),
@@ -89,8 +92,8 @@ export interface RoomSummary {
 export type ServerMessage =
   | { readonly t: 'welcome'; readonly token: string; readonly name: string }
   | { readonly t: 'room'; readonly room: RoomInfo | null }
-  /** declareLeftMs：发完牌后亮主思考时间还剩多少毫秒；declarePassed：点了「不反」的座位。都只在 declaring 阶段有 */
-  | { readonly t: 'state'; readonly seq: number; readonly view: PlayerView; readonly events: readonly GameEvent[]; readonly declareLeftMs?: number; readonly declarePassed?: readonly Seat[] }
+  /** declareLeftMs：发完牌后亮主思考时间还剩多少毫秒；declarePassed：点了「不反」的座位。都只在 declaring 阶段有；chaodiLeftMs：四人抄底轮到真人时还剩多少毫秒 */
+  | { readonly t: 'state'; readonly seq: number; readonly view: PlayerView; readonly events: readonly GameEvent[]; readonly declareLeftMs?: number; readonly declarePassed?: readonly Seat[]; readonly chaodiLeftMs?: number }
   | { readonly t: 'error'; readonly code: string; readonly message: string }
   | { readonly t: 'replay'; readonly replay: RoundReplay }
   | { readonly t: 'rooms'; readonly rooms: readonly RoomSummary[] }

@@ -271,7 +271,7 @@ describe('随机对局', () => {
 });
 
 describe('四人对家模式', () => {
-  it('两副牌 25 张留 8 张底，扣底后直接开打，对家一队', () => {
+  it('两副牌 25 张留 8 张底，扣底后问抄底，都不抄就开打，对家一队', () => {
     const cfg = defaultConfig(4);
     expect(cfg.mode).toBe('partners');
     expect(handSize(cfg)).toBe(25);
@@ -285,6 +285,10 @@ describe('四人对家模式', () => {
     s = must(applyAction(s, { type: 'closeDeclaring' }));
     expect(s.hands[seat]!.length).toBe(33);
     s = must(applyAction(s, { type: 'exchangeBottom', seat, cards: s.hands[seat]!.slice(0, 8).map((c) => c.id) }));
+    // 四人抄底：庄家自己亮的主，其余三家依次问
+    expect(s.phase).toBe('chaodi');
+    expect(s.chaodi?.queue).toEqual([1, 2, 3].map((k) => (seat + k) % 4));
+    for (let k = 1; k < 4; k++) s = must(applyAction(s, { type: 'passChaodi', seat: (seat + k) % 4 }));
     expect(s.phase).toBe('playing');
     expect(s.trick?.leader).toBe(seat);
     const v = viewFor(s, (seat + 1) % 4);

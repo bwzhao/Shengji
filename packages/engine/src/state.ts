@@ -7,7 +7,8 @@ import type { TrickPlay } from './trick.ts';
 
 export type Seat = number;
 
-export type Phase = 'dealing' | 'declaring' | 'bottom' | 'callFriend' | 'playing' | 'roundEnd' | 'gameOver';
+/** chaodi：四人升级庄家埋底后依次问其他人要不要抄底 */
+export type Phase = 'dealing' | 'declaring' | 'bottom' | 'chaodi' | 'callFriend' | 'playing' | 'roundEnd' | 'gameOver';
 
 export interface Declaration {
   readonly seat: Seat;
@@ -18,13 +19,19 @@ export interface Declaration {
 }
 
 /**
- * 本局亮主记录的一条。declare：第一个亮主；reinforce：自己加固；override：反主；
+ * 本局亮主记录的一条。declare：第一个亮主；reinforce：自己加固；override：反主；chaodi：四人抄底；
  * bottom：非首局无人亮主，底牌一张张翻到第一张常主（级牌或王）定主；card 是那张常主，flipped 是翻开的全部牌。
  *   旧存档里的翻底记录没有 flipped，card 为 null 表示打无主
  */
 export type DeclarationRecord =
-  | { readonly kind: 'declare' | 'reinforce' | 'override'; readonly seat: Seat; readonly cards: readonly Card[]; readonly suit: Suit | null }
+  | { readonly kind: 'declare' | 'reinforce' | 'override' | 'chaodi'; readonly seat: Seat; readonly cards: readonly Card[]; readonly suit: Suit | null }
   | { readonly kind: 'bottom'; readonly card: Card | null; readonly suit: Suit | null; readonly flipped?: readonly Card[] };
+
+/** 抄底阶段：queue 是这一圈还要依次问的座位，第一个就是现在要决定的人；last 是上一次抄底用的一对牌 */
+export interface ChaodiState {
+  readonly queue: readonly Seat[];
+  readonly last: { readonly seat: Seat; readonly cards: readonly Card[] } | null;
+}
 
 export interface FriendCallSpec {
   readonly suit: Suit;
@@ -92,6 +99,10 @@ export interface GameState {
   readonly deck: readonly Card[];
   readonly hands: readonly (readonly Card[])[];
   readonly bottom: readonly Card[];
+  /** 最后埋底的人，只有他能看底；有人抄底就换成抄底的人。没有或为 null 时就是庄家。旧存档里没有 */
+  readonly buryer?: Seat | null;
+  /** 四人抄底的进度，不在抄底阶段时为 null。旧存档里没有 */
+  readonly chaodi?: ChaodiState | null;
   readonly dealTurn: Seat;
   /** 首局从谁开始发牌，重发首局时沿用 */
   readonly firstDealSeat: Seat;
@@ -111,6 +122,8 @@ export type Action =
   | { readonly type: 'closeDeclaring' }
   | { readonly type: 'exchangeBottom'; readonly seat: Seat; readonly cards: readonly CardId[] }
   | { readonly type: 'callFriend'; readonly seat: Seat; readonly calls: readonly FriendCallSpec[] }
+  | { readonly type: 'chaodi'; readonly seat: Seat; readonly cards: readonly CardId[] }
+  | { readonly type: 'passChaodi'; readonly seat: Seat }
   | { readonly type: 'play'; readonly seat: Seat; readonly cards: readonly CardId[] }
   | { readonly type: 'nextRound' };
 
@@ -125,6 +138,8 @@ export type GameEvent =
   | { readonly type: 'bottomTaken'; readonly seat: Seat; readonly count: number }
   | { readonly type: 'bottomExchanged'; readonly seat: Seat }
   | { readonly type: 'friendCalled'; readonly calls: readonly FriendCallSpec[] }
+  | { readonly type: 'chaodi'; readonly seat: Seat; readonly cards: readonly Card[]; readonly suit: Suit | null }
+  | { readonly type: 'chaodiPassed'; readonly seat: Seat }
   | { readonly type: 'cardsPlayed'; readonly seat: Seat; readonly cards: readonly Card[] }
   | { readonly type: 'throwFailed'; readonly seat: Seat; readonly attempted: readonly Card[]; readonly forced: readonly Card[]; readonly penalty: number }
   | { readonly type: 'friendRevealed'; readonly seat: Seat; readonly call: FriendCallSpec }

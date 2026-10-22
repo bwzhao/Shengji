@@ -28,6 +28,8 @@ export interface RoomOptions {
   readonly grabDealIntervalMs?: number;
   /** 发完牌后的亮主思考时间；有人亮主、加固或反主就重新计时 */
   readonly declareGraceMs: number;
+  /** 四人抄底：轮到的真人想多久，到时当作不抄。不设是 30 秒 */
+  readonly chaodiGraceMs?: number;
   readonly botDelayMs: number;
   /** 搜索机器人每手的时间预算 */
   readonly searchBudgetMs: number;
@@ -58,6 +60,10 @@ export class Room {
   private declareBotTimer: NodeJS.Timeout | null = null;
   /** 点了「不反」的座位；有人亮主、加固或反主就清空，大家重新决定 */
   private readonly declarePassed = new Set<Seat>();
+  /** 抄底：现在被问的座位、他决定的截止时刻（只给真人计时）和计时器 */
+  private chaodiAsked: Seat | null = null;
+  private chaodiDeadline: number | null = null;
+  private chaodiTimer: NodeJS.Timeout | null = null;
   private botTimer: NodeJS.Timeout | null = null;
   /** 真人只剩唯一合法出法时自动代出 */
   private autoTimer: NodeJS.Timeout | null = null;
@@ -231,7 +237,7 @@ export class Room {
       const m = this.members.get(slot.token);
       if (!m) continue;
       const filtered = events.map((e) => (e.type === 'cardDealt' && e.seat !== seat ? { ...e, card: hiddenCard } : e));
-      this.send(m, { t: 'state', seq: this.seq, view: viewFor(this.state, seat), events: filtered, ...this.declareTimer() });
+      this.send(m, { t: 'state', seq: this.seq, view: viewFor(this.state, seat), events: filtered, ...this.declareTimer(), ...this.chaodiTimerInfo() });
     }
   }
 
@@ -241,13 +247,19 @@ export class Room {
     return { declareLeftMs: Math.max(0, this.declareDeadline - Date.now()), declarePassed: [...this.declarePassed].sort((a, b) => a - b) };
   }
 
+  /** 抄底还剩多少毫秒（轮到真人时才有） */
+  private chaodiTimerInfo(): { chaodiLeftMs?: number } {
+    if (this.state?.phase !== 'chaodi' || this.chaodiDeadline === null) return {};
+    return { chaodiLeftMs: Math.max(0, this.chaodiDeadline - Date.now()) };
+  }
+
   /** 重连或首次连接时补发当前状态 */
   sync(token: string): void {
     const m = this.members.get(token);
     this.send(m, { t: 'room', room: this.info(token) });
     const seat = this.seatOf(token);
     if (this.state && seat !== null) {
-      this.send(m, { t: 'state', seq: this.seq, view: viewFor(this.state, seat), events: [], ...this.declareTimer() });
+      this.send(m, { t: 'state', seq: this.seq, view: viewFor(this.state, seat), events: [], ...this.declareTimer(), ...this.chaodiTimerInfo() });
     }
   }
 
@@ -441,9 +453,34 @@ export class Room {
   private afterChange(events: readonly GameEvent[]): void {
     this.searchEpoch++;
     this.updateDeclareWindow(events);
+    this.updateChaodiWindow();
     this.broadcastState(events);
     this.onChange();
     this.armTimers();
+  }
+
+  /** 抄底轮到新的人就重新计时：真人 30 秒，机器人不计时（它很快就答） */
+  private updateChaodiWindow(): void {
+    const s = this.state;
+    const asked = s?.phase === 'chaodi' ? currentTurn(s) : null;
+    if (asked === this.chaodiAsked) return;
+    this.clearChaodiTimer();
+    this.chaodiAsked = asked;
+    this.chaodiDeadline = asked !== null && !this.seats[asked]?.isBot ? Date.now() + (this.opts.chaodiGraceMs ?? 30_000) : null;
+  }
+
+  private clearChaodiTimer(): void {
+    if (this.chaodiTimer) { clearTimeout(this.chaodiTimer); this.chaodiTimer = null; }
+  }
+
+  private chaodiTimeUp(): void {
+    this.chaodiTimer = null;
+    const s = this.state;
+    const asked = this.chaodiAsked;
+    if (!s || s.phase !== 'chaodi' || asked === null || currentTurn(s) !== asked) return;
+    // 没有真人在线就暂停，真人回来后重新计时
+    if (!this.humansOnline()) { this.chaodiDeadline = null; return; }
+    this.apply({ type: 'passChaodi', seat: asked });
   }
 
   /** 刚发完牌或有人亮主、加固、反主时重新计时，「不反」也作废；离开 declaring 阶段就清掉 */
@@ -490,6 +527,14 @@ export class Room {
             this.declareBotTimer = null;
             this.botsDeclareNow();
           }, this.opts.botDelayMs);
+        }
+        break;
+      case 'chaodi':
+        this.scheduleBot();
+        // 轮到真人：30 秒不决定就当不抄（暂停后回来、或真人刚接管机器人座位时补上计时）
+        if (this.chaodiAsked !== null && !this.seats[this.chaodiAsked]?.isBot) {
+          this.chaodiDeadline ??= Date.now() + (this.opts.chaodiGraceMs ?? 30_000);
+          if (!this.chaodiTimer) this.chaodiTimer = setTimeout(() => this.chaodiTimeUp(), Math.max(0, this.chaodiDeadline - Date.now()));
         }
         break;
       case 'bottom':
@@ -650,6 +695,9 @@ export class Room {
     this.clearTimer('grace');
     this.declareDeadline = null;
     this.declarePassed.clear();
+    this.clearChaodiTimer();
+    this.chaodiAsked = null;
+    this.chaodiDeadline = null;
     if (this.botTimer) { clearTimeout(this.botTimer); this.botTimer = null; }
     if (this.autoTimer) { clearTimeout(this.autoTimer); this.autoTimer = null; }
   }

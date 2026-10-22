@@ -106,7 +106,7 @@ b { font-weight: 700; }
 .decl-log .card-row.small .card:not(:last-child) { margin-right: -12px; }
 .decl-log .dl-who { font-weight: 700; margin-right: 6px; }
 .decl-log .dl-kind { font-size: 12px; padding: 1px 7px; border-radius: 999px; background: rgba(255,255,255,.1); }
-.decl-log .dl-kind.override { background: var(--red); color: #fff; }
+.decl-log .dl-kind.override, .decl-log .dl-kind.chaodi { background: var(--red); color: #fff; }
 .decl-log .dl-kind.reinforce { background: rgba(243,210,130,.25); color: var(--gold); }
 .decl-log .dl-suit { color: var(--ink-2); }
 /* 菜单按钮：金色实心胶囊，在深绿顶栏上一眼能看到 */

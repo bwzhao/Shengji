@@ -173,6 +173,7 @@ export function simulateGame(config: GameConfig, seed: string, opts: SimOptions 
         break;
       }
       case 'bottom':
+      case 'chaodi':
       case 'callFriend':
       case 'playing': {
         let acted = false;

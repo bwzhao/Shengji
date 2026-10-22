@@ -19,6 +19,8 @@ export interface GameClient {
   readonly events: readonly GameEvent[];
   /** 亮主思考时间截止的本地时刻（Date.now() 口径），不在倒计时为 null */
   readonly declareDeadline: number | null;
+  /** 四人抄底轮到真人时的截止时刻（本地时间） */
+  readonly chaodiDeadline: number | null;
   /** 亮主阶段点了「不反」的座位；有人亮主、加固或反主后服务端会清空 */
   readonly declarePassed: readonly number[];
   readonly toasts: readonly Toast[];
@@ -49,6 +51,7 @@ export function useGameClient(): GameClient {
   const [events, setEvents] = useState<readonly GameEvent[]>([]);
   const [declareDeadline, setDeclareDeadline] = useState<number | null>(null);
   const [declarePassed, setDeclarePassed] = useState<readonly number[]>([]);
+  const [chaodiDeadline, setChaodiDeadline] = useState<number | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [replay, setReplay] = useState<RoundReplay | null>(null);
   const [rooms, setRooms] = useState<readonly RoomSummary[] | null>(null);
@@ -94,6 +97,7 @@ export function useGameClient(): GameClient {
             setView(msg.view); setEvents(msg.events);
             setDeclareDeadline(msg.declareLeftMs === undefined ? null : Date.now() + msg.declareLeftMs);
             setDeclarePassed(msg.declarePassed ?? []);
+            setChaodiDeadline(msg.chaodiLeftMs === undefined ? null : Date.now() + msg.chaodiLeftMs);
             break;
           case 'error': pushToast('error', msg.message); break;
           case 'replay': setReplay(msg.replay); break;
@@ -128,7 +132,7 @@ export function useGameClient(): GameClient {
   };
 
   return {
-    connected, name, room, view, events, declareDeadline, declarePassed, toasts, replay, rooms, send, setName,
+    connected, name, room, view, events, declareDeadline, declarePassed, chaodiDeadline, toasts, replay, rooms, send, setName,
     closeReplay: () => setReplay(null),
     dismissToast: (id) => setToasts((t) => t.filter((x) => x.id !== id)),
   };

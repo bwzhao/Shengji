@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  checkDeclaration, createRng, declarationCandidates, decompose, generateFollow, groupOf, identityKey, levelRank, rankName, sortCardsDesc, suitName, summarizePointCards, TOP_TRIPLE_TIER, trickWinner, tripleDeclarationTier, validateFollow,
+  chaodiOptions, checkDeclaration, createRng, declarationCandidates, decompose, generateFollow, groupOf, identityKey, levelRank, rankName, sortCardsDesc, suitName, summarizePointCards, TOP_TRIPLE_TIER, trickWinner, tripleDeclarationTier, validateFollow,
   type Card, type GameEvent, type PlayerView, type Seat, type TrickPlay,
 } from '@shengji/engine';
 import type { ClientMessage } from '@shengji/protocol';
@@ -110,7 +110,17 @@ function statusText(view: PlayerView, name: (s: Seat) => string): string {
       if (view.declaration) return `${name(view.declaration.seat)} 亮 ${suitName(view.trumpSuit)}为主${dealerText}`;
       return view.dealer === null ? '无人亮主，倒计时结束重新发牌' : '无人亮主，倒计时结束翻底牌定主';
     }
-    case 'bottom': return view.dealer === me ? '你是庄家，选 ' + view.config.bottomSize + ' 张扣底' : `${name(view.dealer!)} 正在扣底`;
+    case 'bottom': {
+      // 四人抄底：抄底的人拿起底牌重新埋
+      if (view.buryer !== null && view.buryer !== view.dealer) {
+        return view.buryer === me ? `你抄底了，选 ${view.config.bottomSize} 张重新埋底` : `${name(view.buryer)} 抄底，正在重新埋底`;
+      }
+      return view.dealer === me ? '你是庄家，选 ' + view.config.bottomSize + ' 张扣底' : `${name(view.dealer!)} 正在扣底`;
+    }
+    case 'chaodi': {
+      if (view.currentTurn !== me) return `等 ${name(view.currentTurn!)} 决定抄不抄底`;
+      return chaodiOptions(view.hand, view).length > 0 ? '要抄底吗？用一对级牌或一对王，拿起底牌重新埋' : '你没有能抄底的对子';
+    }
     case 'callFriend': return view.dealer === me ? '叫朋友' : `${name(view.dealer!)} 正在叫朋友`;
     case 'playing': return view.currentTurn === me ? (view.trick?.plays.length ? '轮到你跟牌' : '轮到你出牌') : `等 ${name(view.currentTurn!)} 出牌`;
     case 'roundEnd': return '本局结束';
@@ -169,16 +179,21 @@ export function Table({ client }: { client: GameClient }) {
     window.addEventListener('resize', update);
     return () => { ro?.disconnect(); window.removeEventListener('resize', update); };
   }, []);
-  // 发完牌后的亮主倒计时：有人亮主、加固或反主时服务端重新计时
+  // 发完牌后的亮主倒计时（有人亮主、加固或反主时服务端重新计时），以及四人抄底轮到真人时的倒计时
   const declareDeadline = view.phase === 'declaring' ? client.declareDeadline : null;
+  const chaodiDeadline = view.phase === 'chaodi' ? client.chaodiDeadline : null;
+  const tickUntil = declareDeadline ?? chaodiDeadline;
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (declareDeadline === null) return;
+    if (tickUntil === null) return;
     setNow(Date.now());
     const id = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(id);
-  }, [declareDeadline]);
+  }, [tickUntil]);
   const declareSecs = declareDeadline === null ? null : Math.max(0, Math.ceil((declareDeadline - now) / 1000));
+  const chaodiSecs = chaodiDeadline === null ? null : Math.max(0, Math.ceil((chaodiDeadline - now) / 1000));
+  // 轮到我决定抄不抄底：手里能抄的对子（规则和服务端同一份）
+  const myChaodiOpts = view.phase === 'chaodi' && view.currentTurn === me ? chaodiOptions(view.hand, view) : [];
   // 点了「不反」的人；有人亮主、加固或反主后服务端清空，按钮重新可点
   const passed = view.phase === 'declaring' ? client.declarePassed : [];
   const prevHandIds = useRef<Set<string>>(new Set());
@@ -237,6 +252,8 @@ export function Table({ client }: { client: GameClient }) {
           }
           break;
         case 'regrab': texts.push('底牌里没有常主，重新发牌抢庄'); showFlip('底牌没有常主', e.flipped); break;
+        case 'chaodi': texts.push(`${name(e.seat)} 抄底，改打${e.suit ? GLYPH[e.suit] : '无主'}`); sound.bark(); break;
+        case 'chaodiPassed': texts.push(`${name(e.seat)} 不抄`); break;
         case 'redeal': texts.push('无人亮主，重新发牌'); break;
         case 'roundRestarted': texts.push('房主重发了本局'); break;
         default: break;
@@ -354,7 +371,8 @@ export function Table({ client }: { client: GameClient }) {
   const shownLeader: Seat | null = peeking ? peeking.leader : currentPlays.length > 0 ? (view.trick?.leader ?? null) : null;
 
   // 扣完底之后、结算之前，庄家可以随时看自己扣的底
-  const myBottom = view.dealer === me && (view.phase === 'callFriend' || view.phase === 'playing') && view.bottom?.length ? view.bottom : null;
+  // 只有最后埋底的人能看底（四人有人抄底就是抄底的人），服务端只给他发底牌
+  const myBottom = (view.phase === 'chaodi' || view.phase === 'callFriend' || view.phase === 'playing') && view.bottom?.length ? view.bottom : null;
 
   const pct = (p: Pos): React.CSSProperties => ({ left: `${p.x}%`, top: `${p.y}%` });
 
@@ -484,6 +502,25 @@ export function Table({ client }: { client: GameClient }) {
           {declareSecs !== null && (
             <div className={`declare-timer ${declareSecs <= 5 ? 'urgent' : ''}`}>亮主倒计时 <b>{declareSecs}</b> 秒</div>
           )}
+          {view.chaodi?.last && (view.phase === 'chaodi' || view.phase === 'bottom') && (
+            <div className="declared"><span>{name(view.chaodi.last.seat)} 抄底</span><CardRow cards={view.chaodi.last.cards} small /></div>
+          )}
+          {chaodiSecs !== null && (
+            <div className={`declare-timer ${chaodiSecs <= 5 ? 'urgent' : ''}`}>抄底倒计时 <b>{chaodiSecs}</b> 秒</div>
+          )}
+          {myChaodiOpts.length > 0 && (
+            <div className="declare-hints">
+              {myChaodiOpts.map((cards) => {
+                const c = cards[0] as Card;
+                const label = c.suit === 'J' ? (c.rank === 16 ? '大王' : '小王') : `${GLYPH[c.suit]}${rankName(c.rank)}`;
+                return (
+                  <button key={c.id} className="primary small declare-btn" onClick={() => { send({ t: 'chaodi', cards: cards.map((x) => x.id) }); setSelected([]); }}>
+                    抄底 {label}×2
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {declareOpts.length > 0 && (
             <div className="declare-hints">
               {declareOpts.map((o) => (
@@ -534,7 +571,10 @@ export function Table({ client }: { client: GameClient }) {
               亮主{selected.length ? ` ${selected.length} 张` : ''}
             </button>
           )}
-          {view.phase === 'bottom' && view.dealer === me && (
+          {view.phase === 'chaodi' && view.currentTurn === me && (
+            <button className="ghost" onClick={() => send({ t: 'passChaodi' })}>不抄</button>
+          )}
+          {view.phase === 'bottom' && view.currentTurn === me && (
             <button className="primary" disabled={selected.length !== view.config.bottomSize} onClick={() => { send({ t: 'exchangeBottom', cards: selected }); setSelected([]); }}>
               扣底 {selected.length}/{view.config.bottomSize}
             </button>
