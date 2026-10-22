@@ -44,6 +44,14 @@ export function Lobby({ client }: { client: GameClient }) {
         </div>
         <div className="hint">{room.botStrength === 'strong' ? '加强版每手会推演几十种可能的牌局再出牌，多等约一秒。' : '普通版按牌桌常识出牌，几乎不用等。'}{!room.youAreHost && ' 只有房主能改。'} 机器人以电影明星命名，头像取自维基百科的自由授权照片。</div>
       </div>
+      <div className="panel bots-panel">
+        <div className="panel-title">出牌记录</div>
+        <div className="seg">
+          <button className={room.playLogOpen ? '' : 'on'} disabled={!room.youAreHost} onClick={() => client.send({ t: 'setPlayLog', open: false })}>只看自己的</button>
+          <button className={room.playLogOpen ? 'on' : ''} disabled={!room.youAreHost} onClick={() => client.send({ t: 'setPlayLog', open: true })}>可看所有人的</button>
+        </div>
+        <div className="hint">{room.playLogOpen ? '牌局中可以翻看每一墩所有人出的牌。' : '牌局中只能翻看自己出过的牌，别人出的要靠记；「上一轮」照常能看。'}{!room.youAreHost && ' 只有房主能改。'}</div>
+      </div>
       <div className="lobby-actions">
         {room.youAreHost ? (
           <button className="primary" disabled={!full} onClick={() => client.send({ t: 'start' })}>
