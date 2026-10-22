@@ -24,6 +24,8 @@ interface SeatSlot {
 
 export interface RoomOptions {
   readonly dealIntervalMs: number;
+  /** 抢庄时的发牌间隔：首局从头到尾，非首局重新抢庄到有人亮主定了庄家为止。不设就和平时一样 */
+  readonly grabDealIntervalMs?: number;
   /** 发完牌后的亮主思考时间；有人亮主、加固或反主就重新计时 */
   readonly declareGraceMs: number;
   readonly botDelayMs: number;
@@ -31,7 +33,7 @@ export interface RoomOptions {
   readonly searchBudgetMs: number;
 }
 
-export const defaultRoomOptions: RoomOptions = { dealIntervalMs: 150, declareGraceMs: 30_000, botDelayMs: 900, searchBudgetMs: 1100 };
+export const defaultRoomOptions: RoomOptions = { dealIntervalMs: 150, grabDealIntervalMs: 200, declareGraceMs: 30_000, botDelayMs: 900, searchBudgetMs: 1100 };
 
 export class Room {
   readonly code: string;
@@ -475,7 +477,7 @@ export class Room {
     switch (s.phase) {
       case 'dealing':
         this.clearTimer('grace');
-        if (!this.dealTimer) this.dealTimer = setTimeout(() => this.dealTick(), this.opts.dealIntervalMs);
+        if (!this.dealTimer) this.dealTimer = setTimeout(() => this.dealTick(), this.dealInterval(s));
         break;
       case 'declaring':
         this.clearTimer('deal');
@@ -533,6 +535,12 @@ export class Room {
       if (a && this.apply(a)) declared = true;
     }
     return declared;
+  }
+
+  /** 抢庄时发慢一点：首局从头到尾，非首局重新抢庄到定了庄家为止（GitHub issue #14） */
+  private dealInterval(s: GameState): number {
+    const grabbing = s.round === 1 || s.dealer === null;
+    return grabbing ? (this.opts.grabDealIntervalMs ?? this.opts.dealIntervalMs) : this.opts.dealIntervalMs;
   }
 
   private dealTick(): void {
