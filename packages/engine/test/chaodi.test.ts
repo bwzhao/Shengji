@@ -18,6 +18,8 @@ function dealAll(s: GameState): GameState {
 }
 
 const L = 2; // 四人从 2 打起
+/** 这里只看抄底，关掉过河，免得有人主少时停在过河阶段 */
+const CFG = { ...defaultConfig(4), guohe: false };
 /** 一对常主的两张牌 id：花色级牌，或 'BJ' / 'SJ' 一对大王、小王 */
 const pair = (what: CardSuit | 'BJ' | 'SJ'): string[] =>
   what === 'BJ' ? [cardId('J', 16, 0), cardId('J', 16, 1)]
@@ -46,7 +48,7 @@ function give(s: GameState, seat: number, ids: string[]): GameState {
  * （1 号位亮的牌最后发给他，亮一对大王时 0 号位就没有了）。返回庄家刚拿起底牌、还没埋的局面。
  */
 function setup(declared: string[] = [cardId('C', L, 0)]): GameState {
-  let s = { ...dealAll(createGame(defaultConfig(4), 'chaodi')), round: 2, dealer: 0 as number | null };
+  let s = { ...dealAll(createGame(CFG, 'chaodi')), round: 2, dealer: 0 as number | null };
   s = give(s, 2, pair('H'));
   s = give(s, 3, [...pair('S'), ...pair('D')]);
   s = give(s, 0, pair('BJ'));
@@ -157,7 +159,7 @@ describe('四人抄底（#6）', () => {
 
   it('翻底定主的一局不抄底，庄家埋完直接开打', () => {
     for (let k = 0; ; k++) {
-      let s = { ...dealAll(createGame(defaultConfig(4), `chaodi-flip-${k}`)), round: 2, dealer: 0 as number | null };
+      let s = { ...dealAll(createGame(CFG, `chaodi-flip-${k}`)), round: 2, dealer: 0 as number | null };
       if (!s.bottom.some((c) => c.suit === 'J' || c.rank === s.level)) continue;
       s = must(applyAction(s, { type: 'closeDeclaring' }));
       s = bury(s, 0);

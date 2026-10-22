@@ -7,11 +7,11 @@ import { RANKS, SUITS, cardPoints, identityKey, sumPoints, type Card, type Suit 
 import { decompose, poolOf, type Component } from './combos.ts';
 import { handSize } from './config.ts';
 import { generateFollow, generateFollowWith, highestChooser, lowestChooser, validateFollow, type FollowChooser } from './follow.ts';
-import { ctxOf, currentTurn, dealerTeam, declareLevel } from './reducer.ts';
+import { ctxOf, currentTurn, dealerTeam, declareLevel, GUOHE_CARDS } from './reducer.ts';
 import type { Rng } from './rng.ts';
 import type { Action, FriendCallSpec, GameState, Seat } from './state.ts';
 import { trickWinner, type TrickPlay } from './trick.ts';
-import { groupOf, ordinal, type Group, type TrumpCtx } from './trump.ts';
+import { groupOf, isTrump, ordinal, type Group, type TrumpCtx } from './trump.ts';
 import { possibleDeclarations } from './bot.ts';
 
 /** 可单独开关的策略特性，用于做 A/B 对比。 */
@@ -1084,11 +1084,33 @@ export function smartPlay(s: GameState, seat: Seat, rng: Rng, level: SmartLevel 
   return { type: 'play', seat, cards: best.cards.map((c) => c.id) };
 }
 
+/** 对家过河过来后还牌：留对子和大牌，还最小的单张副牌；副牌不够 5 张时全还，再补最小的主 */
+export function smartGuoheReturn(hand: readonly Card[], ctx: TrumpCtx): Card[] {
+  const plain = hand.filter((c) => !isTrump(c, ctx));
+  const byOrdinal = (a: Card, b: Card) => ordinal(a, ctx) - ordinal(b, ctx);
+  if (plain.length < GUOHE_CARDS) return [...plain, ...hand.filter((c) => isTrump(c, ctx)).sort(byOrdinal)].slice(0, GUOHE_CARDS);
+  const copies = new Map<string, number>();
+  for (const c of plain) copies.set(identityKey(c), (copies.get(identityKey(c)) ?? 0) + 1);
+  const paired = (c: Card) => ((copies.get(identityKey(c)) ?? 0) > 1 ? 1 : 0);
+  return [...plain].sort((a, b) => paired(a) - paired(b) || byOrdinal(a, b)).slice(0, GUOHE_CARDS);
+}
+
+/** 过河还没有策略：能过也不过；对家过河过来就还最小的副牌 */
+function smartGuohe(s: GameState, seat: Seat): Action | null {
+  const g = s.guohe;
+  if (!g) return null;
+  if (g.crossings.some((c) => c.to === seat && c.returned === null)) {
+    return { type: 'guoheReturn', seat, cards: smartGuoheReturn(s.hands[seat] ?? [], ctxOf(s)).map((c) => c.id) };
+  }
+  return g.asked.includes(seat) ? { type: 'passGuohe', seat } : null;
+}
+
 export function smartAction(s: GameState, seat: Seat, rng: Rng, level: SmartLevel = 2): Action | null {
   switch (s.phase) {
     case 'bottom': return currentTurn(s) === seat ? smartExchangeBottom(s, seat, rng) : null;
     // 抄底还没有策略：轮到就不抄
     case 'chaodi': return currentTurn(s) === seat ? { type: 'passChaodi', seat } : null;
+    case 'guohe': return smartGuohe(s, seat);
     case 'callFriend': return seat === s.dealer ? smartCallFriend(s, seat, rng, level) : null;
     case 'playing': return currentTurn(s) === seat ? smartPlay(s, seat, rng, level) : null;
     default: return null;

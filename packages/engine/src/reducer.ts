@@ -8,9 +8,9 @@ import { validateLead } from './lead.ts';
 import { advanceLevel, isTopLevel, levelRank } from './levels.ts';
 import { createRng } from './rng.ts';
 import { scoreRound } from './scoring.ts';
-import type { Action, ChaodiState, Declaration, FriendCall, FriendCallSpec, GameEvent, GameState, RoundResult, Seat, Trick } from './state.ts';
+import type { Action, ChaodiState, Crossing, Declaration, FriendCall, FriendCallSpec, GameEvent, GameState, RoundResult, Seat, Trick } from './state.ts';
 import { bottomMultiplier, trickWinner, type TrickPlay } from './trick.ts';
-import type { TrumpCtx } from './trump.ts';
+import { isTrump, type TrumpCtx } from './trump.ts';
 import type { Decomposition } from './combos.ts';
 
 export type ApplyResult =
@@ -28,6 +28,17 @@ export function ctxOf(s: GameState): TrumpCtx {
 
 export function nextSeat(s: GameState, seat: Seat): Seat {
   return (seat + 1) % s.config.players;
+}
+
+/**
+ * 现在能行动的座位。一般就是轮到的那一个；过河是同时问的，等着还牌的对家排在前面，再是还没决定过不过河的人。
+ */
+export function waitingSeats(s: GameState): Seat[] {
+  if (s.phase === 'guohe' && s.guohe) {
+    return [...s.guohe.crossings.filter((c) => c.returned === null).map((c) => c.to), ...s.guohe.asked];
+  }
+  const t = currentTurn(s);
+  return t === null ? [] : [t];
 }
 
 export function currentTurn(s: GameState): Seat | null {
@@ -93,6 +104,7 @@ function startDealing(s: GameState, firstSeat: Seat): GameState {
     bottom: [],
     buryer: null,
     chaodi: null,
+    guohe: null,
     dealTurn: firstSeat,
     friendCalls: [],
     friends: [],
@@ -126,6 +138,9 @@ export function applyAction(s: GameState, a: Action): ApplyResult {
     case 'callFriend': return callFriend(s, a.seat, a.calls);
     case 'chaodi': return chaodi(s, a.seat, a.cards);
     case 'passChaodi': return passChaodi(s, a.seat);
+    case 'guohe': return guohe(s, a.seat, a.cards);
+    case 'guoheReturn': return guoheReturn(s, a.seat, a.cards);
+    case 'passGuohe': return passGuohe(s, a.seat);
     case 'play': return play(s, a.seat, a.cards);
     case 'nextRound': return nextRound(s);
   }
@@ -306,7 +321,7 @@ function exchangeBottom(s: GameState, seat: Seat, ids: readonly string[]): Apply
   // 四人升级：翻底定主的那一局不抄底；能抄底就依次问，否则扣完底直接开打
   const byBottom = (s.declarationLog ?? []).some((e) => e.kind === 'bottom');
   if (s.config.chaodi && !byBottom) return ok(askChaodi(next, seat), events);
-  return ok(startPlaying(next), events);
+  return ok(afterBottom(next), events);
 }
 
 /** 对家模式开打：庄家先出 */
@@ -381,7 +396,7 @@ function askChaodi(s: GameState, buryer: Seat): GameState {
       if (seat !== setter) queue.push(seat);
     }
   }
-  if (queue.length === 0) return startPlaying(s);
+  if (queue.length === 0) return afterBottom(s);
   return { ...s, phase: 'chaodi', chaodi: { queue, last } };
 }
 
@@ -414,8 +429,99 @@ function passChaodi(s: GameState, seat: Seat): ApplyResult {
   if (s.phase !== 'chaodi' || !s.chaodi) return fail('WRONG_PHASE', '现在不是抄底阶段');
   if (s.chaodi.queue[0] !== seat) return fail('NOT_YOUR_TURN', '还没轮到你决定抄不抄底');
   const queue = s.chaodi.queue.slice(1);
-  const next: GameState = queue.length > 0 ? { ...s, chaodi: { ...s.chaodi, queue } } : startPlaying(s);
+  const next: GameState = queue.length > 0 ? { ...s, chaodi: { ...s.chaodi, queue } } : afterBottom(s);
   return ok(next, [{ type: 'chaodiPassed', seat }]);
+}
+
+// ---------- 四人过河（GitHub issue #7） ----------
+
+/** 过河交换的张数，也是能过河的主牌张数上限 */
+export const GUOHE_CARDS = 5;
+
+/**
+ * 抄底问完（或这局不抄底）后同时问能过河的人：主牌不多于 5 张，不是庄家，本局没抄过底。
+ * 打无主不过河；没人能过就开打。
+ */
+function afterBottom(s: GameState): GameState {
+  if (!s.config.guohe || s.trumpSuit === null) return startPlaying(s);
+  const ctx = ctxOf(s);
+  const chaodiSeats = new Set((s.declarationLog ?? []).flatMap((e) => (e.kind === 'chaodi' ? [e.seat] : [])));
+  const asked: Seat[] = [];
+  for (let seat = 0; seat < s.config.players; seat++) {
+    if (seat === s.dealer || chaodiSeats.has(seat)) continue;
+    if ((s.hands[seat] ?? []).filter((c) => isTrump(c, ctx)).length <= GUOHE_CARDS) asked.push(seat);
+  }
+  if (asked.length === 0) return startPlaying(s);
+  return { ...s, phase: 'guohe', chaodi: null, guohe: { asked, crossings: [] } };
+}
+
+/** 过河给出的牌（不检查是否在手里）：正好 5 张，手里的主牌必须全在里面，不够的用别的牌补 */
+export function checkGuoheGive(hand: readonly Card[], cards: readonly Card[], ctx: TrumpCtx): RuleError | null {
+  if (cards.length !== GUOHE_CARDS) return ruleError('WRONG_CARD_COUNT', `过河要给对家 ${GUOHE_CARDS} 张牌`);
+  const ids = new Set(cards.map((c) => c.id));
+  if (hand.some((c) => isTrump(c, ctx) && !ids.has(c.id))) return ruleError('INVALID_GUOHE', '过河要把手里的主牌全部给出去');
+  return null;
+}
+
+/** 还牌（不检查是否在手里）：正好 5 张副牌；副牌不够 5 张时副牌全还，差的用主牌补 */
+export function checkGuoheReturn(hand: readonly Card[], cards: readonly Card[], ctx: TrumpCtx): RuleError | null {
+  if (cards.length !== GUOHE_CARDS) return ruleError('WRONG_CARD_COUNT', `要还给对家 ${GUOHE_CARDS} 张牌`);
+  const plain = hand.filter((c) => !isTrump(c, ctx));
+  const ids = new Set(cards.map((c) => c.id));
+  const fine = plain.length >= GUOHE_CARDS ? cards.every((c) => !isTrump(c, ctx)) : plain.every((c) => ids.has(c.id));
+  return fine ? null : ruleError('INVALID_GUOHE', '还牌只能还副牌，不能还主牌');
+}
+
+/** 四人对家：坐对面的人 */
+function partnerOf(s: GameState, seat: Seat): Seat {
+  return (seat + s.config.players / 2) % s.config.players;
+}
+
+function guohe(s: GameState, seat: Seat, ids: readonly string[]): ApplyResult {
+  if (s.phase !== 'guohe' || !s.guohe) return fail('WRONG_PHASE', '现在不是过河阶段');
+  if (!s.guohe.asked.includes(seat)) return fail('NOT_YOUR_TURN', '你现在不能过河');
+  const hand = s.hands[seat] as readonly Card[];
+  const cards = findCards(hand, ids);
+  if (!cards) return fail('CARDS_NOT_IN_HAND', '过河的牌不在手中');
+  const err = checkGuoheGive(hand, cards, ctxOf(s));
+  if (err) return { ok: false, error: err };
+  const to = partnerOf(s, seat);
+  let hands = replaceAt(s.hands, seat, removeCards(hand, cards));
+  hands = replaceAt(hands, to, [...(hands[to] as readonly Card[]), ...cards]);
+  // 一队只过一次：对家已经拿到全队的主，不再问他
+  const asked = s.guohe.asked.filter((x) => x !== seat && x !== to);
+  const crossings: Crossing[] = [...s.guohe.crossings, { from: seat, to, given: cards, returned: null }];
+  return ok({ ...s, hands, guohe: { asked, crossings } }, [{ type: 'guohe', seat, to }]);
+}
+
+function guoheReturn(s: GameState, seat: Seat, ids: readonly string[]): ApplyResult {
+  if (s.phase !== 'guohe' || !s.guohe) return fail('WRONG_PHASE', '现在不是过河阶段');
+  const k = s.guohe.crossings.findIndex((c) => c.to === seat && c.returned === null);
+  if (k < 0) return fail('NOT_YOUR_TURN', '没有人过河给你');
+  const crossing = s.guohe.crossings[k] as Crossing;
+  const hand = s.hands[seat] as readonly Card[];
+  const cards = findCards(hand, ids);
+  if (!cards) return fail('CARDS_NOT_IN_HAND', '还的牌不在手中');
+  const err = checkGuoheReturn(hand, cards, ctxOf(s));
+  if (err) return { ok: false, error: err };
+  let hands = replaceAt(s.hands, seat, removeCards(hand, cards));
+  hands = replaceAt(hands, crossing.from, [...(hands[crossing.from] as readonly Card[]), ...cards]);
+  const crossings = s.guohe.crossings.map((c, i) => (i === k ? { ...c, returned: cards } : c));
+  return ok(guoheProgress({ ...s, hands, guohe: { ...s.guohe, crossings } }), [{ type: 'guoheReturned', seat, to: crossing.from }]);
+}
+
+function passGuohe(s: GameState, seat: Seat): ApplyResult {
+  if (s.phase !== 'guohe' || !s.guohe) return fail('WRONG_PHASE', '现在不是过河阶段');
+  if (!s.guohe.asked.includes(seat)) return fail('NOT_YOUR_TURN', '你现在不用决定过不过河');
+  const asked = s.guohe.asked.filter((x) => x !== seat);
+  return ok(guoheProgress({ ...s, guohe: { ...s.guohe, asked } }), [{ type: 'guohePassed', seat }]);
+}
+
+/** 人人都决定了、过河的牌也都还了就开打；过河记录留到本局结束 */
+function guoheProgress(s: GameState): GameState {
+  const g = s.guohe;
+  if (!g || g.asked.length > 0 || g.crossings.some((c) => c.returned === null)) return s;
+  return startPlaying(s);
 }
 
 function callFriend(s: GameState, seat: Seat, calls: readonly FriendCallSpec[]): ApplyResult {

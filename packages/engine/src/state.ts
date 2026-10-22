@@ -7,8 +7,8 @@ import type { TrickPlay } from './trick.ts';
 
 export type Seat = number;
 
-/** chaodi：四人升级庄家埋底后依次问其他人要不要抄底 */
-export type Phase = 'dealing' | 'declaring' | 'bottom' | 'chaodi' | 'callFriend' | 'playing' | 'roundEnd' | 'gameOver';
+/** chaodi：四人升级庄家埋底后依次问其他人要不要抄底；guohe：抄底问完后，主少的人可以和对家换 5 张牌 */
+export type Phase = 'dealing' | 'declaring' | 'bottom' | 'chaodi' | 'guohe' | 'callFriend' | 'playing' | 'roundEnd' | 'gameOver';
 
 export interface Declaration {
   readonly seat: Seat;
@@ -31,6 +31,20 @@ export type DeclarationRecord =
 export interface ChaodiState {
   readonly queue: readonly Seat[];
   readonly last: { readonly seat: Seat; readonly cards: readonly Card[] } | null;
+}
+
+/** 一次过河：from 把 given 交给对家 to，to 还回 returned；还没还时 returned 为 null */
+export interface Crossing {
+  readonly from: Seat;
+  readonly to: Seat;
+  readonly given: readonly Card[];
+  readonly returned: readonly Card[] | null;
+}
+
+/** 过河阶段：asked 是还没决定过不过河的座位（同时问）；crossings 是本局的过河 */
+export interface GuoheState {
+  readonly asked: readonly Seat[];
+  readonly crossings: readonly Crossing[];
 }
 
 export interface FriendCallSpec {
@@ -103,6 +117,8 @@ export interface GameState {
   readonly buryer?: Seat | null;
   /** 四人抄底的进度，不在抄底阶段时为 null。旧存档里没有 */
   readonly chaodi?: ChaodiState | null;
+  /** 四人过河的进度，不在过河阶段时为 null。旧存档里没有 */
+  readonly guohe?: GuoheState | null;
   readonly dealTurn: Seat;
   /** 首局从谁开始发牌，重发首局时沿用 */
   readonly firstDealSeat: Seat;
@@ -124,6 +140,11 @@ export type Action =
   | { readonly type: 'callFriend'; readonly seat: Seat; readonly calls: readonly FriendCallSpec[] }
   | { readonly type: 'chaodi'; readonly seat: Seat; readonly cards: readonly CardId[] }
   | { readonly type: 'passChaodi'; readonly seat: Seat }
+  /** 过河：把 5 张牌（含全部主牌）交给对家 */
+  | { readonly type: 'guohe'; readonly seat: Seat; readonly cards: readonly CardId[] }
+  /** 对家过河过来后还 5 张副牌 */
+  | { readonly type: 'guoheReturn'; readonly seat: Seat; readonly cards: readonly CardId[] }
+  | { readonly type: 'passGuohe'; readonly seat: Seat }
   | { readonly type: 'play'; readonly seat: Seat; readonly cards: readonly CardId[] }
   | { readonly type: 'nextRound' };
 
@@ -140,6 +161,10 @@ export type GameEvent =
   | { readonly type: 'friendCalled'; readonly calls: readonly FriendCallSpec[] }
   | { readonly type: 'chaodi'; readonly seat: Seat; readonly cards: readonly Card[]; readonly suit: Suit | null }
   | { readonly type: 'chaodiPassed'; readonly seat: Seat }
+  /** 过河的牌只有双方看得到，事件里不带牌 */
+  | { readonly type: 'guohe'; readonly seat: Seat; readonly to: Seat }
+  | { readonly type: 'guoheReturned'; readonly seat: Seat; readonly to: Seat }
+  | { readonly type: 'guohePassed'; readonly seat: Seat }
   | { readonly type: 'cardsPlayed'; readonly seat: Seat; readonly cards: readonly Card[] }
   | { readonly type: 'throwFailed'; readonly seat: Seat; readonly attempted: readonly Card[]; readonly forced: readonly Card[]; readonly penalty: number }
   | { readonly type: 'friendRevealed'; readonly seat: Seat; readonly call: FriendCallSpec }

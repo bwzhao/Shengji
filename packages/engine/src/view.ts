@@ -4,6 +4,22 @@ import type { GameConfig } from './config.ts';
 import type { LevelIndex } from './levels.ts';
 import { currentTurn, dealerTeam, declareLevel } from './reducer.ts';
 import type { ChaodiState, Declaration, DeclarationRecord, FriendCall, GameState, Phase, RoundResult, Seat, Trick, TrickRecord } from './state.ts';
+
+/** 一次过河在某个座位眼里：谁过给谁大家都知道，交换的牌只有双方看得到（别人看到 null） */
+export interface CrossingView {
+  readonly from: Seat;
+  readonly to: Seat;
+  readonly given: readonly Card[] | null;
+  readonly returned: readonly Card[] | null;
+  /** 对家已经还牌 */
+  readonly done: boolean;
+}
+
+export interface GuoheView {
+  /** 还没决定过不过河的座位 */
+  readonly asked: readonly Seat[];
+  readonly crossings: readonly CrossingView[];
+}
 import { sortCards, suitDisplayOrder } from './trump.ts';
 
 export interface PlayerView {
@@ -28,6 +44,8 @@ export interface PlayerView {
   readonly buryer: Seat | null;
   /** 四人抄底的进度（大家都看得到）：这一圈还要问谁、上一次抄底用的一对牌 */
   readonly chaodi: ChaodiState | null;
+  /** 四人过河：过河阶段的进度，开打后留着本局谁过给了谁 */
+  readonly guohe: GuoheView | null;
   readonly deckRemaining: number;
   readonly friendCalls: readonly FriendCall[];
   readonly dealerTeam: readonly Seat[];
@@ -79,7 +97,7 @@ export function viewFor(s: GameState, seat: Seat): PlayerView {
   }
   // 只有最后埋底的人能看底：一般是庄家，四人局有人抄底就换成抄底的人（GitHub issue #6）
   const buryer = s.buryer ?? s.dealer;
-  const ownerSees = seat === buryer && (s.phase === 'bottom' || s.phase === 'chaodi' || s.phase === 'callFriend' || s.phase === 'playing');
+  const ownerSees = seat === buryer && (s.phase === 'bottom' || s.phase === 'chaodi' || s.phase === 'guohe' || s.phase === 'callFriend' || s.phase === 'playing');
   const showBottom = ownerSees || s.phase === 'roundEnd' || s.phase === 'gameOver';
   return {
     seat,
@@ -100,6 +118,15 @@ export function viewFor(s: GameState, seat: Seat): PlayerView {
     bottom: showBottom ? s.bottom : null,
     buryer,
     chaodi: s.chaodi ?? null,
+    guohe: s.guohe
+      ? {
+          asked: s.guohe.asked,
+          crossings: s.guohe.crossings.map((c) => {
+            const mine = seat === c.from || seat === c.to;
+            return { from: c.from, to: c.to, given: mine ? c.given : null, returned: mine ? c.returned : null, done: c.returned !== null };
+          }),
+        }
+      : null,
     deckRemaining: s.deck.length,
     friendCalls: s.friendCalls,
     dealerTeam: team,
