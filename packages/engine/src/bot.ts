@@ -2,7 +2,7 @@
 import { RANKS, SUITS, identityKey, type Card, type Suit } from './cards.ts';
 import { decompose } from './combos.ts';
 import { generateFollow } from './follow.ts';
-import { checkDeclaration, ctxOf, currentTurn, declareLevel, type DeclarationContext } from './reducer.ts';
+import { chaodiOptions, checkDeclaration, ctxOf, currentTurn, declareLevel, type DeclarationContext } from './reducer.ts';
 import type { Rng } from './rng.ts';
 import type { Action, FriendCallSpec, GameState, Seat } from './state.ts';
 import { groupOf, type Group } from './trump.ts';
@@ -12,9 +12,11 @@ export interface BotOptions {
   readonly declareProbability: number;
   /** 首出时尝试甩牌的概率 */
   readonly throwProbability: number;
+  /** 四人局轮到自己、手里有能抄底的对子时抄底的概率 */
+  readonly chaodiProbability?: number;
 }
 
-export const defaultBotOptions: BotOptions = { declareProbability: 0.5, throwProbability: 0.1 };
+export const defaultBotOptions: BotOptions = { declareProbability: 0.5, throwProbability: 0.1, chaodiProbability: 0.3 };
 
 /** 手中所有可以压过当前亮主的亮法。 */
 export function possibleDeclarations(s: GameState, seat: Seat): Card[][] {
@@ -52,6 +54,15 @@ export function botDeclare(s: GameState, seat: Seat, rng: Rng, opts: BotOptions 
   const options = possibleDeclarations(s, seat);
   if (options.length === 0 || rng.next() >= opts.declareProbability) return null;
   return { type: 'declare', seat, cards: rng.pick(options).map((c) => c.id) };
+}
+
+/** 随机机器人抄底：有能抄的对子就按概率随便挑一对抄，否则不抄 */
+function botChaodi(s: GameState, seat: Seat, rng: Rng, opts: BotOptions): Action {
+  const options = chaodiOptions(s.hands[seat] ?? [], s);
+  if (options.length > 0 && rng.next() < (opts.chaodiProbability ?? 0)) {
+    return { type: 'chaodi', seat, cards: rng.pick(options).map((c) => c.id) };
+  }
+  return { type: 'passChaodi', seat };
 }
 
 export function botExchangeBottom(s: GameState, seat: Seat, rng: Rng): Action {
@@ -109,7 +120,8 @@ export function botPlay(s: GameState, seat: Seat, rng: Rng, opts: BotOptions = d
 /** 轮到该座位时机器人要做的事；不在其回合返回 null。亮主另由 botDeclare 处理。 */
 export function botAction(s: GameState, seat: Seat, rng: Rng, opts: BotOptions = defaultBotOptions): Action | null {
   switch (s.phase) {
-    case 'bottom': return seat === s.dealer ? botExchangeBottom(s, seat, rng) : null;
+    case 'bottom': return currentTurn(s) === seat ? botExchangeBottom(s, seat, rng) : null;
+    case 'chaodi': return currentTurn(s) === seat ? botChaodi(s, seat, rng, opts) : null;
     case 'callFriend': return seat === s.dealer ? botCallFriend(s, seat, rng) : null;
     case 'playing': return currentTurn(s) === seat ? botPlay(s, seat, rng, opts) : null;
     default: return null;

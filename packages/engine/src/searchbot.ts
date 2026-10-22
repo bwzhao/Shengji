@@ -397,7 +397,8 @@ function playoutFrom(start: GameState, seat: Seat, rng: Rng, startTricks = start
     if (++guard > 500) return null;
     const cut = valueCut(s, seat, startTricks);
     if (cut !== null) return cut;
-    const actor = s.phase === 'playing' ? currentTurn(s) : s.dealer;
+    // 扣底、四人抄底、叫朋友、出牌都按轮到谁来
+    const actor = currentTurn(s);
     if (actor === null) return null;
     const a = smartAction(s, actor, rng, 2);
     if (!a) return null;

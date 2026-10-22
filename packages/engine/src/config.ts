@@ -28,6 +28,8 @@ export interface GameConfig {
   readonly levelSequence?: readonly number[];
   /** 升级时不能越过的级别（点数） */
   readonly levelStops?: readonly number[];
+  /** 四人抄底：庄家埋底后其他人可以用一对常主抄底重新埋。旧存档里没有就不抄底 */
+  readonly chaodi?: boolean;
   /** 庄家阵营守住时原庄家连庄（五人找朋友）；不设时交给最近的朋友 */
   readonly dealerKeepsOnHold?: boolean;
 }
@@ -52,6 +54,7 @@ export function defaultConfig(players: PlayerCount): GameConfig {
       // 四人升级从 2 打到 A；第一次到 5、10、K 不能跳过
       levelSequence: PARTNERS_LEVEL_SEQUENCE,
       levelStops: PARTNERS_LEVEL_STOPS,
+      chaodi: true,
     };
   }
   const five = players === 5;

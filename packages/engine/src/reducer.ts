@@ -8,7 +8,7 @@ import { validateLead } from './lead.ts';
 import { advanceLevel, isTopLevel, levelRank } from './levels.ts';
 import { createRng } from './rng.ts';
 import { scoreRound } from './scoring.ts';
-import type { Action, Declaration, FriendCall, FriendCallSpec, GameEvent, GameState, RoundResult, Seat, Trick } from './state.ts';
+import type { Action, ChaodiState, Declaration, FriendCall, FriendCallSpec, GameEvent, GameState, RoundResult, Seat, Trick } from './state.ts';
 import { bottomMultiplier, trickWinner, type TrickPlay } from './trick.ts';
 import type { TrumpCtx } from './trump.ts';
 import type { Decomposition } from './combos.ts';
@@ -31,7 +31,9 @@ export function nextSeat(s: GameState, seat: Seat): Seat {
 }
 
 export function currentTurn(s: GameState): Seat | null {
-  if (s.phase === 'bottom' || s.phase === 'callFriend') return s.dealer;
+  if (s.phase === 'bottom') return s.buryer ?? s.dealer;
+  if (s.phase === 'chaodi') return s.chaodi?.queue[0] ?? null;
+  if (s.phase === 'callFriend') return s.dealer;
   if (s.phase !== 'playing' || !s.trick) return null;
   const last = s.trick.plays[s.trick.plays.length - 1];
   return last ? nextSeat(s, last.seat) : s.trick.leader;
@@ -89,6 +91,8 @@ function startDealing(s: GameState, firstSeat: Seat): GameState {
     deck,
     hands: Array.from({ length: n }, () => []),
     bottom: [],
+    buryer: null,
+    chaodi: null,
     dealTurn: firstSeat,
     friendCalls: [],
     friends: [],
@@ -120,6 +124,8 @@ export function applyAction(s: GameState, a: Action): ApplyResult {
     case 'closeDeclaring': return closeDeclaring(s);
     case 'exchangeBottom': return exchangeBottom(s, a.seat, a.cards);
     case 'callFriend': return callFriend(s, a.seat, a.calls);
+    case 'chaodi': return chaodi(s, a.seat, a.cards);
+    case 'passChaodi': return passChaodi(s, a.seat);
     case 'play': return play(s, a.seat, a.cards);
     case 'nextRound': return nextRound(s);
   }
@@ -282,22 +288,134 @@ function closeDeclaring(s: GameState): ApplyResult {
 
 function exchangeBottom(s: GameState, seat: Seat, ids: readonly string[]): ApplyResult {
   if (s.phase !== 'bottom') return fail('WRONG_PHASE', '现在不是扣底阶段');
-  if (seat !== s.dealer) return fail('NOT_DEALER', '只有庄家能扣底');
+  if (seat !== (s.buryer ?? s.dealer)) return fail('NOT_DEALER', s.buryer != null ? '现在是抄底的人在埋底' : '只有庄家能扣底');
   const hand = s.hands[seat] as readonly Card[];
   const cards = findCards(hand, ids);
   if (!cards) return fail('CARDS_NOT_IN_HAND', '扣的牌不在手中');
   if (cards.length !== s.config.bottomSize) {
     return fail('WRONG_CARD_COUNT', `必须扣 ${s.config.bottomSize} 张`);
   }
-  // 对家模式没有叫朋友，扣完底直接开打
   const next: GameState = {
     ...s,
     hands: replaceAt(s.hands, seat, removeCards(hand, cards)),
     bottom: cards,
-    phase: s.config.friendCount === 0 ? 'playing' : 'callFriend',
-    trick: s.config.friendCount === 0 ? { leader: seat, plays: [], lead: null } : s.trick,
+    buryer: seat,
   };
-  return ok(next, [{ type: 'bottomExchanged', seat }]);
+  const events: GameEvent[] = [{ type: 'bottomExchanged', seat }];
+  if (s.config.friendCount > 0) return ok({ ...next, phase: 'callFriend' }, events);
+  // 四人升级：翻底定主的那一局不抄底；能抄底就依次问，否则扣完底直接开打
+  const byBottom = (s.declarationLog ?? []).some((e) => e.kind === 'bottom');
+  if (s.config.chaodi && !byBottom) return ok(askChaodi(next, seat), events);
+  return ok(startPlaying(next), events);
+}
+
+/** 对家模式开打：庄家先出 */
+function startPlaying(s: GameState): GameState {
+  return { ...s, phase: 'playing', chaodi: null, trick: { leader: s.dealer as Seat, plays: [], lead: null } };
+}
+
+/** 抄底比大小：大王 > 小王 > ♠ > ♥ > ♣ > ♦ */
+const CHAODI_RANK: Record<string, number> = { D: 1, C: 2, H: 3, S: 4 };
+export function chaodiRank(cards: readonly Card[]): number {
+  const c = cards[0] as Card;
+  if (c.suit === 'J') return c.rank === 16 ? 6 : 5;
+  return CHAODI_RANK[c.suit] ?? 0;
+}
+const TOP_CHAODI_RANK = 6;
+
+/** 抄底合法性的输入：服务端用完整局面，客户端用 PlayerView */
+export interface ChaodiContext {
+  readonly level: number;
+  readonly declaration?: Declaration | null;
+  readonly chaodi?: ChaodiState | null;
+}
+
+/** 抄底要压过的那一对：上一次抄底的对子，或亮主时亮出的一对；亮的是单张就不受限制 */
+function chaodiTarget(ctx: ChaodiContext): readonly Card[] | null {
+  const last = ctx.chaodi?.last;
+  if (last) return last.cards;
+  return ctx.declaration?.count === 2 ? ctx.declaration.cards : null;
+}
+
+/**
+ * 检查用 cards 抄底是否合法（不检查牌是否在手里）：必须是一对常主——两张一样的级牌或两张一样的王；
+ * 亮主是单张时第一次抄底任意一对都行，否则要比当前亮出的那一对大。
+ */
+export function checkChaodi(ctx: ChaodiContext, cards: readonly Card[]): RuleError | null {
+  if (cards.length !== 2) return ruleError('INVALID_DECLARATION', '抄底要用一对常主（两张一样的级牌或王）');
+  const [a, b] = cards as [Card, Card];
+  if (identityKey(a) !== identityKey(b)) return ruleError('INVALID_DECLARATION', '抄底的两张牌必须一样');
+  if (a.suit !== 'J' && a.rank !== ctx.level) return ruleError('INVALID_DECLARATION', `只能用一对级牌或一对王抄底，当前级牌是 ${ctx.level}`);
+  const target = chaodiTarget(ctx);
+  if (target && chaodiRank(cards) <= chaodiRank(target)) {
+    return ruleError('DECLARATION_TOO_WEAK', '要比当前亮出的那对大：大王 > 小王 > ♠ > ♥ > ♣ > ♦');
+  }
+  return null;
+}
+
+/** 手里能用来抄底的每一种对子（每种取两张），界面和机器人共用 */
+export function chaodiOptions(hand: readonly Card[], ctx: ChaodiContext): Card[][] {
+  const groups = new Map<string, Card[]>();
+  for (const c of hand) {
+    if (c.suit !== 'J' && c.rank !== ctx.level) continue;
+    const k = identityKey(c);
+    groups.set(k, [...(groups.get(k) ?? []), c]);
+  }
+  const out: Card[][] = [];
+  for (const g of groups.values()) if (g.length >= 2 && !checkChaodi(ctx, g.slice(0, 2))) out.push(g.slice(0, 2));
+  return out.sort((x, y) => chaodiRank(y) - chaodiRank(x));
+}
+
+/**
+ * 埋完底后依次问要不要抄底：从刚埋底的人的下家开始问一圈。刚埋底的人不能接着抄，
+ * 定了当前主花色的人（亮主的人，或上一个抄底的人）也不能抄。亮出的是一对大王就不再问。没人可问就开打。
+ */
+function askChaodi(s: GameState, buryer: Seat): GameState {
+  const last = s.chaodi?.last ?? null;
+  const setter = last?.seat ?? s.declaration?.seat ?? null;
+  const target = chaodiTarget(s);
+  const queue: Seat[] = [];
+  if (!target || chaodiRank(target) < TOP_CHAODI_RANK) {
+    for (let k = 1; k < s.config.players; k++) {
+      const seat = (buryer + k) % s.config.players;
+      if (seat !== setter) queue.push(seat);
+    }
+  }
+  if (queue.length === 0) return startPlaying(s);
+  return { ...s, phase: 'chaodi', chaodi: { queue, last } };
+}
+
+function chaodi(s: GameState, seat: Seat, ids: readonly string[]): ApplyResult {
+  if (s.phase !== 'chaodi' || !s.chaodi) return fail('WRONG_PHASE', '现在不能抄底');
+  if (s.chaodi.queue[0] !== seat) return fail('NOT_YOUR_TURN', '还没轮到你决定抄不抄底');
+  const hand = s.hands[seat] as readonly Card[];
+  const cards = findCards(hand, ids);
+  if (!cards) return fail('CARDS_NOT_IN_HAND', '抄底的牌不在手中');
+  const err = checkChaodi(s, cards);
+  if (err) return { ok: false, error: err };
+  const first = cards[0] as Card;
+  const suit: Suit | null = first.suit === 'J' ? null : (first.suit as Suit);
+  // 拿起底牌重新埋；庄家不变，保底的责任还在庄家
+  const next: GameState = {
+    ...s,
+    hands: replaceAt(s.hands, seat, [...hand, ...s.bottom]),
+    bottom: [],
+    buryer: seat,
+    phase: 'bottom',
+    trumpSuit: suit,
+    declaration: { seat, cards, suit, count: cards.length },
+    declarationLog: [...(s.declarationLog ?? []), { kind: 'chaodi', seat, cards, suit }],
+    chaodi: { queue: [], last: { seat, cards } },
+  };
+  return ok(next, [{ type: 'chaodi', seat, cards, suit }, { type: 'bottomTaken', seat, count: s.bottom.length }]);
+}
+
+function passChaodi(s: GameState, seat: Seat): ApplyResult {
+  if (s.phase !== 'chaodi' || !s.chaodi) return fail('WRONG_PHASE', '现在不是抄底阶段');
+  if (s.chaodi.queue[0] !== seat) return fail('NOT_YOUR_TURN', '还没轮到你决定抄不抄底');
+  const queue = s.chaodi.queue.slice(1);
+  const next: GameState = queue.length > 0 ? { ...s, chaodi: { ...s.chaodi, queue } } : startPlaying(s);
+  return ok(next, [{ type: 'chaodiPassed', seat }]);
 }
 
 function callFriend(s: GameState, seat: Seat, calls: readonly FriendCallSpec[]): ApplyResult {

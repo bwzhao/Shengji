@@ -3,7 +3,7 @@ import { cardPoints, type Card, type Suit } from './cards.ts';
 import type { GameConfig } from './config.ts';
 import type { LevelIndex } from './levels.ts';
 import { currentTurn, dealerTeam, declareLevel } from './reducer.ts';
-import type { Declaration, DeclarationRecord, FriendCall, GameState, Phase, RoundResult, Seat, Trick, TrickRecord } from './state.ts';
+import type { ChaodiState, Declaration, DeclarationRecord, FriendCall, GameState, Phase, RoundResult, Seat, Trick, TrickRecord } from './state.ts';
 import { sortCards, suitDisplayOrder } from './trump.ts';
 
 export interface PlayerView {
@@ -24,6 +24,10 @@ export interface PlayerView {
   readonly bottomCount: number;
   /** 庄家从扣底起一直能看到（扣底阶段是还没扣的空底，之后是自己扣下的牌）；结算时所有人能看到 */
   readonly bottom: readonly Card[] | null;
+  /** 最后埋底的人（正在埋底的人）：庄家，或抄底的人。只有他能看底 */
+  readonly buryer: Seat | null;
+  /** 四人抄底的进度（大家都看得到）：这一圈还要问谁、上一次抄底用的一对牌 */
+  readonly chaodi: ChaodiState | null;
   readonly deckRemaining: number;
   readonly friendCalls: readonly FriendCall[];
   readonly dealerTeam: readonly Seat[];
@@ -73,8 +77,10 @@ export function viewFor(s: GameState, seat: Seat): PlayerView {
     const target = opponentSet.has(t.winner) ? opponentPointCards : pendingPointCards;
     for (const p of t.plays) for (const c of p.cards) if (cardPoints(c) > 0) target.push(c);
   }
-  const dealerSees = seat === s.dealer && (s.phase === 'bottom' || s.phase === 'callFriend' || s.phase === 'playing');
-  const showBottom = dealerSees || s.phase === 'roundEnd' || s.phase === 'gameOver';
+  // 只有最后埋底的人能看底：一般是庄家，四人局有人抄底就换成抄底的人（GitHub issue #6）
+  const buryer = s.buryer ?? s.dealer;
+  const ownerSees = seat === buryer && (s.phase === 'bottom' || s.phase === 'chaodi' || s.phase === 'callFriend' || s.phase === 'playing');
+  const showBottom = ownerSees || s.phase === 'roundEnd' || s.phase === 'gameOver';
   return {
     seat,
     config: s.config,
@@ -92,6 +98,8 @@ export function viewFor(s: GameState, seat: Seat): PlayerView {
     handCounts: s.hands.map((h) => h.length),
     bottomCount: s.bottom.length,
     bottom: showBottom ? s.bottom : null,
+    buryer,
+    chaodi: s.chaodi ?? null,
     deckRemaining: s.deck.length,
     friendCalls: s.friendCalls,
     dealerTeam: team,

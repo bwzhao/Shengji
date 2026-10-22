@@ -1086,7 +1086,9 @@ export function smartPlay(s: GameState, seat: Seat, rng: Rng, level: SmartLevel 
 
 export function smartAction(s: GameState, seat: Seat, rng: Rng, level: SmartLevel = 2): Action | null {
   switch (s.phase) {
-    case 'bottom': return seat === s.dealer ? smartExchangeBottom(s, seat, rng) : null;
+    case 'bottom': return currentTurn(s) === seat ? smartExchangeBottom(s, seat, rng) : null;
+    // 抄底还没有策略：轮到就不抄
+    case 'chaodi': return currentTurn(s) === seat ? { type: 'passChaodi', seat } : null;
     case 'callFriend': return seat === s.dealer ? smartCallFriend(s, seat, rng, level) : null;
     case 'playing': return currentTurn(s) === seat ? smartPlay(s, seat, rng, level) : null;
     default: return null;
