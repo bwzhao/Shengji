@@ -44,6 +44,8 @@ export interface PlayerView {
   readonly buryer: Seat | null;
   /** 四人抄底的进度（大家都看得到）：这一圈还要问谁、上一次抄底用的一对牌 */
   readonly chaodi: ChaodiState | null;
+  /** 造反后重新抢庄：谁先亮谁坐庄，之后反主不换庄 */
+  readonly grabFixed: boolean;
   /** 四人过河：过河阶段的进度，开打后留着本局谁过给了谁 */
   readonly guohe: GuoheView | null;
   readonly deckRemaining: number;
@@ -118,6 +120,7 @@ export function viewFor(s: GameState, seat: Seat): PlayerView {
     bottom: showBottom ? s.bottom : null,
     buryer,
     chaodi: s.chaodi ?? null,
+    grabFixed: s.grabFixed ?? false,
     guohe: s.guohe
       ? {
           asked: s.guohe.asked,

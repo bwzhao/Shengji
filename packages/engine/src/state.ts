@@ -119,6 +119,8 @@ export interface GameState {
   readonly chaodi?: ChaodiState | null;
   /** 四人过河的进度，不在过河阶段时为 null。旧存档里没有 */
   readonly guohe?: GuoheState | null;
+  /** 造反后重新抢庄：谁先亮谁坐庄，之后反主不换庄（首局也这样）。下一局清掉。旧存档里没有 */
+  readonly grabFixed?: boolean;
   readonly dealTurn: Seat;
   /** 首局从谁开始发牌，重发首局时沿用 */
   readonly firstDealSeat: Seat;
@@ -145,6 +147,8 @@ export type Action =
   /** 对家过河过来后还 5 张副牌 */
   | { readonly type: 'guoheReturn'; readonly seat: Seat; readonly cards: readonly CardId[] }
   | { readonly type: 'passGuohe'; readonly seat: Seat }
+  /** 造反：手里分数太少或太多，推倒重新抓牌抢庄 */
+  | { readonly type: 'zaofan'; readonly seat: Seat }
   | { readonly type: 'play'; readonly seat: Seat; readonly cards: readonly CardId[] }
   | { readonly type: 'nextRound' };
 
@@ -165,6 +169,7 @@ export type GameEvent =
   | { readonly type: 'guohe'; readonly seat: Seat; readonly to: Seat }
   | { readonly type: 'guoheReturned'; readonly seat: Seat; readonly to: Seat }
   | { readonly type: 'guohePassed'; readonly seat: Seat }
+  | { readonly type: 'zaofan'; readonly seat: Seat; readonly points: number }
   | { readonly type: 'cardsPlayed'; readonly seat: Seat; readonly cards: readonly Card[] }
   | { readonly type: 'throwFailed'; readonly seat: Seat; readonly attempted: readonly Card[]; readonly forced: readonly Card[]; readonly penalty: number }
   | { readonly type: 'friendRevealed'; readonly seat: Seat; readonly call: FriendCallSpec }

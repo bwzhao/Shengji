@@ -32,6 +32,11 @@ export interface GameConfig {
   readonly chaodi?: boolean;
   /** 四人过河：抄底问完后，主牌不多于 5 张的人可以和对家换 5 张牌。旧存档里没有就不过河 */
   readonly guohe?: boolean;
+  /**
+   * 造反：庄家埋底（第一次，四人抄底开始前）或叫朋友时，手里分数不多于 low 或不少于 high 的人可以推倒，
+   * 重新抓牌抢庄。庄家只能在埋底前造反，手里含底牌，上限是 dealerHigh。旧存档里没有就不能造反
+   */
+  readonly zaofan?: { readonly low: number; readonly high: number; readonly dealerHigh: number };
   /** 庄家阵营守住时原庄家连庄（五人找朋友）；不设时交给最近的朋友 */
   readonly dealerKeepsOnHold?: boolean;
 }
@@ -58,6 +63,7 @@ export function defaultConfig(players: PlayerCount): GameConfig {
       levelStops: PARTNERS_LEVEL_STOPS,
       chaodi: true,
       guohe: true,
+      zaofan: { low: 15, high: 85, dealerHigh: 95 },
     };
   }
   const five = players === 5;
@@ -72,6 +78,7 @@ export function defaultConfig(players: PlayerCount): GameConfig {
     allowEqualCountOverride: false,
     dealerCountsForFriend: true,
     redealIfNoDeclarerFirstRound: true,
+    zaofan: five ? { low: 15, high: 105, dealerHigh: 120 } : { low: 15, high: 90, dealerHigh: 100 },
     levelSequence: LEVEL_SEQUENCE,
     levelStops: [],
     // 五人找朋友守住就连庄，下庄仍交给第一个闲家

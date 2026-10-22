@@ -10,7 +10,7 @@ import { startServer, type RunningServer } from '../src/server.ts';
 let server: RunningServer;
 
 beforeAll(async () => {
-  server = await startServer({ port: 0, host: '127.0.0.1', serveStatic: false, roomOptions: { dealIntervalMs: 2, declareGraceMs: 30, botDelayMs: 2, searchBudgetMs: 5 } });
+  server = await startServer({ port: 0, host: '127.0.0.1', serveStatic: false, roomOptions: { dealIntervalMs: 2, declareGraceMs: 30, zaofanWaitMs: 2, botDelayMs: 2, searchBudgetMs: 5 } });
 });
 afterAll(async () => { await server.close(); });
 

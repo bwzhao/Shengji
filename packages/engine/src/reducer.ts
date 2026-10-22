@@ -8,7 +8,7 @@ import { validateLead } from './lead.ts';
 import { advanceLevel, isTopLevel, levelRank } from './levels.ts';
 import { createRng } from './rng.ts';
 import { scoreRound } from './scoring.ts';
-import type { Action, ChaodiState, Crossing, Declaration, FriendCall, FriendCallSpec, GameEvent, GameState, RoundResult, Seat, Trick } from './state.ts';
+import type { Action, ChaodiState, Crossing, Declaration, DeclarationRecord, FriendCall, FriendCallSpec, GameEvent, GameState, Phase, RoundResult, Seat, Trick } from './state.ts';
 import { bottomMultiplier, trickWinner, type TrickPlay } from './trick.ts';
 import { isTrump, type TrumpCtx } from './trump.ts';
 import type { Decomposition } from './combos.ts';
@@ -141,6 +141,7 @@ export function applyAction(s: GameState, a: Action): ApplyResult {
     case 'guohe': return guohe(s, a.seat, a.cards);
     case 'guoheReturn': return guoheReturn(s, a.seat, a.cards);
     case 'passGuohe': return passGuohe(s, a.seat);
+    case 'zaofan': return zaofan(s, a.seat);
     case 'play': return play(s, a.seat, a.cards);
     case 'nextRound': return nextRound(s);
   }
@@ -260,7 +261,8 @@ function declare(s: GameState, seat: Seat, ids: readonly string[]): ApplyResult 
     trumpDecided: true,
     // 首局谁最终抢到主谁坐庄：被反主则庄家随之改变。非首局庄家已定，反主只改主花色；
     // 非首局重新抢庄时谁先亮谁坐庄，这一局打他的级，之后反主只改主花色
-    dealer: s.round === 1 ? seat : (s.dealer ?? seat),
+    // 造反后重新抢庄也是谁先亮谁坐庄，首局也一样
+    dealer: s.round === 1 && !s.grabFixed ? seat : (s.dealer ?? seat),
     level: s.dealer === null ? level : s.level,
   };
   return ok(next, [{ type: 'declared', seat, cards, suit, count }]);
@@ -431,6 +433,43 @@ function passChaodi(s: GameState, seat: Seat): ApplyResult {
   const queue = s.chaodi.queue.slice(1);
   const next: GameState = queue.length > 0 ? { ...s, chaodi: { ...s.chaodi, queue } } : afterBottom(s);
   return ok(next, [{ type: 'chaodiPassed', seat }]);
+}
+
+// ---------- 造反（GitHub issue #13） ----------
+
+/** 造反合法性的输入：服务端用完整局面，客户端用 PlayerView */
+export interface ZaofanContext {
+  readonly config: GameConfig;
+  readonly phase: Phase;
+  readonly dealer: Seat | null;
+  readonly declarationLog?: readonly DeclarationRecord[];
+}
+
+/**
+ * 能不能造反（hand 是这个座位现在的手牌）：庄家第一次埋底时（四人抄底开始前）或叫朋友时，
+ * 手里 5、10、K 的分数不多于下限或不少于上限。庄家只能在埋底前造反，手里含底牌，用更高的上限。
+ */
+export function zaofanError(ctx: ZaofanContext, seat: Seat, hand: readonly Card[]): RuleError | null {
+  const rule = ctx.config.zaofan;
+  if (!rule) return ruleError('INVALID_ZAOFAN', '这个模式不能造反');
+  const firstBury = ctx.phase === 'bottom' && !(ctx.declarationLog ?? []).some((e) => e.kind === 'chaodi');
+  if (!firstBury && ctx.phase !== 'callFriend') return ruleError('WRONG_PHASE', '只能在庄家埋底或叫朋友时造反');
+  if (seat === ctx.dealer && !firstBury) return ruleError('WRONG_PHASE', '庄家只能在埋底前造反');
+  const points = sumPoints(hand);
+  const high = seat === ctx.dealer ? rule.dealerHigh : rule.high;
+  if (points > rule.low && points < high) {
+    return ruleError('INVALID_ZAOFAN', `手里 ${points} 分；不多于 ${rule.low} 分或不少于 ${high} 分才能造反`);
+  }
+  return null;
+}
+
+/** 造反：推倒重来，从造反的人开始重新发牌抢庄，谁先亮出自己的级牌谁坐庄，之后反主只改主花色 */
+function zaofan(s: GameState, seat: Seat): ApplyResult {
+  const hand = s.hands[seat] as readonly Card[];
+  const err = zaofanError(s, seat, hand);
+  if (err) return { ok: false, error: err };
+  const next = startDealing({ ...s, dealer: null, grabFixed: true, redeals: s.redeals + 1 }, seat);
+  return ok(next, [{ type: 'zaofan', seat, points: sumPoints(hand) }]);
 }
 
 // ---------- 四人过河（GitHub issue #7） ----------
@@ -723,6 +762,7 @@ function nextRound(s: GameState): ApplyResult {
     ...s,
     round: s.round + 1,
     redeals: 0,
+    grabFixed: false,
     dealer,
     level: levelRank(s.levels[dealer] as number, s.config),
   };

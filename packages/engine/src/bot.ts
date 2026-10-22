@@ -2,7 +2,7 @@
 import { RANKS, SUITS, identityKey, type Card, type Suit } from './cards.ts';
 import { decompose } from './combos.ts';
 import { generateFollow } from './follow.ts';
-import { chaodiOptions, checkDeclaration, ctxOf, currentTurn, declareLevel, GUOHE_CARDS, type DeclarationContext } from './reducer.ts';
+import { chaodiOptions, checkDeclaration, ctxOf, currentTurn, declareLevel, GUOHE_CARDS, zaofanError, type DeclarationContext } from './reducer.ts';
 import type { Rng } from './rng.ts';
 import type { Action, FriendCallSpec, GameState, Seat } from './state.ts';
 import { groupOf, isTrump, type Group } from './trump.ts';
@@ -16,9 +16,11 @@ export interface BotOptions {
   readonly chaodiProbability?: number;
   /** 能过河时过河的概率 */
   readonly guoheProbability?: number;
+  /** 能造反时造反的概率 */
+  readonly zaofanProbability?: number;
 }
 
-export const defaultBotOptions: BotOptions = { declareProbability: 0.5, throwProbability: 0.1, chaodiProbability: 0.3, guoheProbability: 0.5 };
+export const defaultBotOptions: BotOptions = { declareProbability: 0.5, throwProbability: 0.1, chaodiProbability: 0.3, guoheProbability: 0.5, zaofanProbability: 0.5 };
 
 /** 手中所有可以压过当前亮主的亮法。 */
 export function possibleDeclarations(s: GameState, seat: Seat): Card[][] {
@@ -140,7 +142,9 @@ export function botPlay(s: GameState, seat: Seat, rng: Rng, opts: BotOptions = d
 /** 轮到该座位时机器人要做的事；不在其回合返回 null。亮主另由 botDeclare 处理。 */
 export function botAction(s: GameState, seat: Seat, rng: Rng, opts: BotOptions = defaultBotOptions): Action | null {
   switch (s.phase) {
-    case 'bottom': return currentTurn(s) === seat ? botExchangeBottom(s, seat, rng) : null;
+    case 'bottom':
+      if (!zaofanError(s, seat, s.hands[seat] ?? []) && rng.next() < (opts.zaofanProbability ?? 0)) return { type: 'zaofan', seat };
+      return currentTurn(s) === seat ? botExchangeBottom(s, seat, rng) : null;
     case 'chaodi': return currentTurn(s) === seat ? botChaodi(s, seat, rng, opts) : null;
     case 'guohe': return botGuohe(s, seat, rng, opts);
     case 'callFriend': return seat === s.dealer ? botCallFriend(s, seat, rng) : null;

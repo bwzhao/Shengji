@@ -36,6 +36,9 @@ export const clientMessageSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('guohe'), cards: cardIds }),
   z.object({ t: z.literal('guoheReturn'), cards: cardIds }),
   z.object({ t: z.literal('passGuohe') }),
+  /** 造反：手里分数太少或太多时推倒重来；机器人坐庄时可以点「不造反」让它不用等 */
+  z.object({ t: z.literal('zaofan') }),
+  z.object({ t: z.literal('passZaofan') }),
   z.object({ t: z.literal('exchangeBottom'), cards: cardIds }),
   z.object({ t: z.literal('callFriend'), calls: z.array(friendCallSchema).min(1).max(2) }),
   z.object({ t: z.literal('play'), cards: cardIds }),
@@ -100,8 +103,8 @@ export interface RoomSummary {
 export type ServerMessage =
   | { readonly t: 'welcome'; readonly token: string; readonly name: string }
   | { readonly t: 'room'; readonly room: RoomInfo | null }
-  /** declareLeftMs：发完牌后亮主思考时间还剩多少毫秒；declarePassed：点了「不反」的座位。都只在 declaring 阶段有；chaodiLeftMs：四人抄底轮到真人时还剩多少毫秒；guoheLeftMs：四人过河还有真人没决定时还剩多少毫秒 */
-  | { readonly t: 'state'; readonly seq: number; readonly view: PlayerView; readonly events: readonly GameEvent[]; readonly declareLeftMs?: number; readonly declarePassed?: readonly Seat[]; readonly chaodiLeftMs?: number; readonly guoheLeftMs?: number }
+  /** declareLeftMs：发完牌后亮主思考时间还剩多少毫秒；declarePassed：点了「不反」的座位。都只在 declaring 阶段有；chaodiLeftMs：四人抄底轮到真人时还剩多少毫秒；guoheLeftMs：四人过河还有真人没决定时还剩多少毫秒；zaofanLeftMs、zaofanPassed：机器人庄家埋底前等真人造反还剩多少毫秒、谁点了「不造反」 */
+  | { readonly t: 'state'; readonly seq: number; readonly view: PlayerView; readonly events: readonly GameEvent[]; readonly declareLeftMs?: number; readonly declarePassed?: readonly Seat[]; readonly chaodiLeftMs?: number; readonly guoheLeftMs?: number; readonly zaofanLeftMs?: number; readonly zaofanPassed?: readonly Seat[] }
   | { readonly t: 'error'; readonly code: string; readonly message: string }
   | { readonly t: 'replay'; readonly replay: RoundReplay }
   | { readonly t: 'rooms'; readonly rooms: readonly RoomSummary[] }
