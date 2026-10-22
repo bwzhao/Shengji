@@ -23,6 +23,9 @@ export interface GameClient {
   readonly chaodiDeadline: number | null;
   /** 四人过河还有真人没决定时的截止时刻（本地时间） */
   readonly guoheDeadline: number | null;
+  /** 机器人坐庄、埋底前等真人造反的截止时刻（本地时间），和点了「不造反」的座位 */
+  readonly zaofanDeadline: number | null;
+  readonly zaofanPassed: readonly number[];
   /** 亮主阶段点了「不反」的座位；有人亮主、加固或反主后服务端会清空 */
   readonly declarePassed: readonly number[];
   readonly toasts: readonly Toast[];
@@ -55,6 +58,8 @@ export function useGameClient(): GameClient {
   const [declarePassed, setDeclarePassed] = useState<readonly number[]>([]);
   const [chaodiDeadline, setChaodiDeadline] = useState<number | null>(null);
   const [guoheDeadline, setGuoheDeadline] = useState<number | null>(null);
+  const [zaofanDeadline, setZaofanDeadline] = useState<number | null>(null);
+  const [zaofanPassed, setZaofanPassed] = useState<readonly number[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [replay, setReplay] = useState<RoundReplay | null>(null);
   const [rooms, setRooms] = useState<readonly RoomSummary[] | null>(null);
@@ -102,6 +107,8 @@ export function useGameClient(): GameClient {
             setDeclarePassed(msg.declarePassed ?? []);
             setChaodiDeadline(msg.chaodiLeftMs === undefined ? null : Date.now() + msg.chaodiLeftMs);
             setGuoheDeadline(msg.guoheLeftMs === undefined ? null : Date.now() + msg.guoheLeftMs);
+            setZaofanDeadline(msg.zaofanLeftMs === undefined ? null : Date.now() + msg.zaofanLeftMs);
+            setZaofanPassed(msg.zaofanPassed ?? []);
             break;
           case 'error': pushToast('error', msg.message); break;
           case 'replay': setReplay(msg.replay); break;
@@ -136,7 +143,7 @@ export function useGameClient(): GameClient {
   };
 
   return {
-    connected, name, room, view, events, declareDeadline, declarePassed, chaodiDeadline, guoheDeadline, toasts, replay, rooms, send, setName,
+    connected, name, room, view, events, declareDeadline, declarePassed, chaodiDeadline, guoheDeadline, zaofanDeadline, zaofanPassed, toasts, replay, rooms, send, setName,
     closeReplay: () => setReplay(null),
     dismissToast: (id) => setToasts((t) => t.filter((x) => x.id !== id)),
   };

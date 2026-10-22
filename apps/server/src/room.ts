@@ -32,6 +32,8 @@ export interface RoomOptions {
   readonly chaodiGraceMs?: number;
   /** 四人过河：问能过河的人时大家共用的思考时间，到时没决定的当作不过。不设是 60 秒 */
   readonly guoheGraceMs?: number;
+  /** 造反：机器人坐庄时等这么久再埋底，给真人时间造反；真人都点了「不造反」就不等。不设是 10 秒 */
+  readonly zaofanWaitMs?: number;
   readonly botDelayMs: number;
   /** 搜索机器人每手的时间预算 */
   readonly searchBudgetMs: number;
@@ -71,6 +73,9 @@ export class Room {
   /** 过河：截止时刻和计时器；只在还有真人没决定过不过河时计时，给牌还牌不计时 */
   private guoheDeadline: number | null = null;
   private guoheTimer: NodeJS.Timeout | null = null;
+  /** 造反：机器人庄家埋底前等到的时刻，和点了「不造反」的座位 */
+  private zaofanDeadline: number | null = null;
+  private readonly zaofanPassed = new Set<Seat>();
   private botTimer: NodeJS.Timeout | null = null;
   /** 真人只剩唯一合法出法时自动代出 */
   private autoTimer: NodeJS.Timeout | null = null;
@@ -263,7 +268,7 @@ export class Room {
       const m = this.members.get(slot.token);
       if (!m) continue;
       const filtered = events.map((e) => (e.type === 'cardDealt' && e.seat !== seat ? { ...e, card: hiddenCard } : e));
-      this.send(m, { t: 'state', seq: this.seq, view: this.viewOf(seat), events: filtered, ...this.declareTimer(), ...this.chaodiTimerInfo(), ...this.guoheTimerInfo() });
+      this.send(m, { t: 'state', seq: this.seq, view: this.viewOf(seat), events: filtered, ...this.declareTimer(), ...this.chaodiTimerInfo(), ...this.guoheTimerInfo(), ...this.zaofanInfo() });
     }
   }
 
@@ -285,13 +290,60 @@ export class Room {
     return { guoheLeftMs: Math.max(0, this.guoheDeadline - Date.now()) };
   }
 
+  /** 机器人庄家第一次埋底前等真人造反：还剩多少毫秒、谁点了「不造反」 */
+  private zaofanInfo(): { zaofanLeftMs?: number; zaofanPassed?: Seat[] } {
+    if (!this.botDealerWaiting() || this.zaofanDeadline === null) return {};
+    return { zaofanLeftMs: Math.max(0, this.zaofanDeadline - Date.now()), zaofanPassed: [...this.zaofanPassed].sort((a, b) => a - b) };
+  }
+
+  /** 机器人坐庄、第一次埋底（四人抄底开始前）：这段时间真人可以造反，机器人先等着 */
+  private botDealerWaiting(): boolean {
+    const s = this.state;
+    if (!s || s.phase !== 'bottom' || !s.config.zaofan || s.dealer === null) return false;
+    if ((s.declarationLog ?? []).some((e) => e.kind === 'chaodi')) return false;
+    return Boolean(this.seats[s.dealer]?.isBot);
+  }
+
+  /** 机器人庄家埋底前还要等多久；除庄家外在线的真人都点了「不造反」就不等 */
+  private zaofanHoldMs(): number {
+    if (!this.botDealerWaiting()) return 0;
+    const dealer = this.state?.dealer;
+    if (this.onlineHumanSeats().every((s) => s === dealer || this.zaofanPassed.has(s))) return 0;
+    this.zaofanDeadline ??= Date.now() + (this.opts.zaofanWaitMs ?? 10_000);
+    return Math.max(0, this.zaofanDeadline - Date.now());
+  }
+
+  /** 离开机器人庄家埋底就清掉造反等待；进入时开始计时 */
+  private updateZaofanWindow(): void {
+    if (!this.botDealerWaiting()) {
+      this.zaofanPassed.clear();
+      this.zaofanDeadline = null;
+      return;
+    }
+    if (this.humansOnline()) this.zaofanDeadline ??= Date.now() + (this.opts.zaofanWaitMs ?? 10_000);
+  }
+
+  /** 「不造反」：除庄家外在线的真人都点了，机器人庄家就不再等，马上埋底 */
+  passZaofan(token: string): void {
+    const seat = this.seatOf(token);
+    if (seat === null || !this.botDealerWaiting()) return this.error(token, 'WRONG_PHASE', '现在不用决定造不造反');
+    this.zaofanPassed.add(seat);
+    this.lastActivity = Date.now();
+    if (this.zaofanHoldMs() === 0 && this.botTimer) {
+      clearTimeout(this.botTimer);
+      this.botTimer = null;
+      this.scheduleBot();
+    }
+    this.broadcastState([]);
+  }
+
   /** 重连或首次连接时补发当前状态 */
   sync(token: string): void {
     const m = this.members.get(token);
     this.send(m, { t: 'room', room: this.info(token) });
     const seat = this.seatOf(token);
     if (this.state && seat !== null) {
-      this.send(m, { t: 'state', seq: this.seq, view: this.viewOf(seat), events: [], ...this.declareTimer(), ...this.chaodiTimerInfo(), ...this.guoheTimerInfo() });
+      this.send(m, { t: 'state', seq: this.seq, view: this.viewOf(seat), events: [], ...this.declareTimer(), ...this.chaodiTimerInfo(), ...this.guoheTimerInfo(), ...this.zaofanInfo() });
     }
   }
 
@@ -459,7 +511,7 @@ export class Room {
   private record(action: Action, next: GameState, events: readonly GameEvent[]): void {
     const cur = this.roundLogs[this.roundLogs.length - 1];
     if (cur) (cur.actions as Action[]).push(action);
-    if (events.some((e) => e.type === 'dealerChanged' || e.type === 'redeal' || e.type === 'regrab')) this.beginRoundLog(next);
+    if (events.some((e) => e.type === 'dealerChanged' || e.type === 'redeal' || e.type === 'regrab' || e.type === 'zaofan')) this.beginRoundLog(next);
   }
 
   replayFor(token: string, round: number): void {
@@ -487,6 +539,7 @@ export class Room {
     this.updateDeclareWindow(events);
     this.updateChaodiWindow();
     this.updateGuoheWindow();
+    this.updateZaofanWindow();
     this.broadcastState(events);
     this.onChange();
     this.armTimers();
@@ -680,7 +733,9 @@ export class Room {
     if (this.botToAct() === null) return;
     // 加强模式下搜索本身就是思考时间，固定等待缩短
     const searching = this.botStrength === 'strong' && (this.state.phase === 'playing' || this.state.phase === 'bottom' || this.state.phase === 'callFriend');
-    const delay = searching ? Math.min(this.opts.botDelayMs, 100) : this.opts.botDelayMs;
+    // 机器人坐庄第一次埋底：先等真人决定造不造反
+    const hold = this.zaofanHoldMs();
+    const delay = hold > 0 ? hold : searching ? Math.min(this.opts.botDelayMs, 100) : this.opts.botDelayMs;
     this.botTimer = setTimeout(() => {
       this.botTimer = null;
       if (!this.state || !this.humansOnline()) return;
@@ -770,6 +825,8 @@ export class Room {
     this.chaodiDeadline = null;
     if (this.guoheTimer) { clearTimeout(this.guoheTimer); this.guoheTimer = null; }
     this.guoheDeadline = null;
+    this.zaofanPassed.clear();
+    this.zaofanDeadline = null;
     if (this.botTimer) { clearTimeout(this.botTimer); this.botTimer = null; }
     if (this.autoTimer) { clearTimeout(this.autoTimer); this.autoTimer = null; }
   }

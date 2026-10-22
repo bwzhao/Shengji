@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  chaodiOptions, checkDeclaration, checkGuoheGive, checkGuoheReturn, createRng, GUOHE_CARDS, isTrump, declarationCandidates, decompose, generateFollow, groupOf, identityKey, levelRank, rankName, sortCardsDesc, suitName, summarizePointCards, TOP_TRIPLE_TIER, trickWinner, tripleDeclarationTier, validateFollow,
+  chaodiOptions, checkDeclaration, checkGuoheGive, checkGuoheReturn, createRng, GUOHE_CARDS, isTrump, declarationCandidates, decompose, generateFollow, groupOf, identityKey, levelRank, rankName, sortCardsDesc, suitName, summarizePointCards, sumPoints, zaofanError, TOP_TRIPLE_TIER, trickWinner, tripleDeclarationTier, validateFollow,
   type Card, type GameEvent, type PlayerView, type Seat, type TrickPlay,
 } from '@shengji/engine';
 import type { ClientMessage } from '@shengji/protocol';
@@ -98,7 +98,7 @@ function statusText(view: PlayerView, name: (s: Seat) => string): string {
   switch (view.phase) {
     case 'dealing': {
       const d = view.declaration;
-      if (!d && view.dealer === null && view.round > 1) return '重新抢庄：谁先亮出自己的级牌谁坐庄';
+      if (!d && view.dealer === null && (view.round > 1 || view.grabFixed)) return '重新抢庄：谁先亮出自己的级牌谁坐庄';
       if (!d) return '发牌中，有级牌或对王可以亮主';
       // 同是三张还分强弱：三张大王 > 三张小王 > 三张一样的级牌 > 三张不一样的王
       const hint = d.count < 3 ? '更多张可以反' : tripleDeclarationTier(d.cards) < TOP_TRIPLE_TIER ? '更大的三张可以反' : '已经最大';
@@ -194,7 +194,8 @@ export function Table({ client }: { client: GameClient }) {
   const declareDeadline = view.phase === 'declaring' ? client.declareDeadline : null;
   const chaodiDeadline = view.phase === 'chaodi' ? client.chaodiDeadline : null;
   const guoheDeadline = view.phase === 'guohe' ? client.guoheDeadline : null;
-  const tickUntil = declareDeadline ?? chaodiDeadline ?? guoheDeadline;
+  const zaofanDeadline = view.phase === 'bottom' ? client.zaofanDeadline : null;
+  const tickUntil = declareDeadline ?? chaodiDeadline ?? guoheDeadline ?? zaofanDeadline;
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (tickUntil === null) return;
@@ -205,6 +206,12 @@ export function Table({ client }: { client: GameClient }) {
   const declareSecs = declareDeadline === null ? null : Math.max(0, Math.ceil((declareDeadline - now) / 1000));
   const chaodiSecs = chaodiDeadline === null ? null : Math.max(0, Math.ceil((chaodiDeadline - now) / 1000));
   const guoheSecs = guoheDeadline === null ? null : Math.max(0, Math.ceil((guoheDeadline - now) / 1000));
+  const zaofanSecs = zaofanDeadline === null ? null : Math.max(0, Math.ceil((zaofanDeadline - now) / 1000));
+  // 造反：手里分数太少或太多时可以推倒重来；点一次先确认，免得误点
+  const canZaofan = (view.phase === 'bottom' || view.phase === 'callFriend') && zaofanError(view, me, view.hand) === null;
+  const [confirmZaofan, setConfirmZaofan] = useState(false);
+  useEffect(() => { if (!canZaofan) setConfirmZaofan(false); }, [canZaofan]);
+  const zaofanPassed = view.phase === 'bottom' ? client.zaofanPassed : [];
   // 四人过河：我能不能过河、是不是在等我还牌
   const guoheAsked = view.phase === 'guohe' && Boolean(view.guohe?.asked.includes(me));
   const guoheReturning = view.phase === 'guohe' && Boolean(view.guohe?.crossings.some((c) => c.to === me && !c.done));
@@ -277,6 +284,7 @@ export function Table({ client }: { client: GameClient }) {
         case 'guohe': texts.push(`${name(e.seat)} 过河给 ${name(e.to)}`); sound.bark(); break;
         case 'guoheReturned': texts.push(`${name(e.seat)} 还了 ${GUOHE_CARDS} 张牌`); break;
         case 'guohePassed': texts.push(`${name(e.seat)} 不过河`); break;
+        case 'zaofan': texts.push(`${name(e.seat)} 造反（手里 ${e.points} 分），重新发牌抢庄`); sound.bark(); break;
         case 'redeal': texts.push('无人亮主，重新发牌'); break;
         case 'roundRestarted': texts.push('房主重发了本局'); break;
         default: break;
@@ -484,6 +492,7 @@ export function Table({ client }: { client: GameClient }) {
                 {s && !s.connected && <span className="b-off">离线</span>}
                 {passed.includes(seat) && <span className="b-pass">不反</span>}
                 {view.guohe?.crossings.some((c) => c.from === seat) && <span className="b-pass">过河</span>}
+                {zaofanPassed.includes(seat) && <span className="b-pass">不造反</span>}
               </span>
             </div>
           );
@@ -532,6 +541,9 @@ export function Table({ client }: { client: GameClient }) {
           )}
           {chaodiSecs !== null && (
             <div className={`declare-timer ${chaodiSecs <= 5 ? 'urgent' : ''}`}>抄底倒计时 <b>{chaodiSecs}</b> 秒</div>
+          )}
+          {zaofanSecs !== null && (
+            <div className={`declare-timer ${zaofanSecs <= 3 ? 'urgent' : ''}`}>造反倒计时 <b>{zaofanSecs}</b> 秒</div>
           )}
           {guoheSecs !== null && (
             <div className={`declare-timer ${guoheSecs <= 5 ? 'urgent' : ''}`}>过河倒计时 <b>{guoheSecs}</b> 秒</div>
@@ -601,6 +613,16 @@ export function Table({ client }: { client: GameClient }) {
           )}
           {view.phase === 'chaodi' && view.currentTurn === me && (
             <button className="ghost" onClick={() => send({ t: 'passChaodi' })}>不抄</button>
+          )}
+          {zaofanDeadline !== null && view.dealer !== me && (
+            <button className="ghost" disabled={zaofanPassed.includes(me)} onClick={() => send({ t: 'passZaofan' })}>
+              {zaofanPassed.includes(me) ? '已不造反' : '不造反'}
+            </button>
+          )}
+          {canZaofan && (
+            <button className={confirmZaofan ? 'primary' : 'ghost'} onClick={() => { if (confirmZaofan) send({ t: 'zaofan' }); else setConfirmZaofan(true); }}>
+              {confirmZaofan ? `确认造反？` : `造反（${sumPoints(view.hand)} 分）`}
+            </button>
           )}
           {guoheAsked && (
             <>

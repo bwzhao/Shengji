@@ -13,6 +13,7 @@ export type RuleErrorCode =
   | 'MUST_FOLLOW_SUIT'
   | 'MUST_MATCH_STRUCTURE'
   | 'INVALID_GUOHE'
+  | 'INVALID_ZAOFAN'
   | 'INVALID_ACTION';
 
 export interface RuleError {

@@ -181,6 +181,8 @@ wss.on('connection', (ws: AliveSocket) => {
       case 'guohe': return r.act(token, { type: 'guohe', seat, cards: msg.cards });
       case 'guoheReturn': return r.act(token, { type: 'guoheReturn', seat, cards: msg.cards });
       case 'passGuohe': return r.act(token, { type: 'passGuohe', seat });
+      case 'zaofan': return r.act(token, { type: 'zaofan', seat });
+      case 'passZaofan': return r.passZaofan(token);
       case 'exchangeBottom': return r.act(token, { type: 'exchangeBottom', seat, cards: msg.cards });
       case 'callFriend': return r.act(token, { type: 'callFriend', seat, calls: msg.calls });
       case 'play': return r.act(token, { type: 'play', seat, cards: msg.cards });
