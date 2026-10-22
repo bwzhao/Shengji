@@ -157,7 +157,9 @@ function splitHand(hand: readonly Card[], ctx: { level: number; trumpSuit: Playe
 export function Table({ client }: { client: GameClient }) {
   const view = client.view!;
   const room = client.room!;
+  // me 是自己的座位；观看者（没坐下）是正在看的那个座位，只能看不能操作
   const me = view.seat;
+  const spectating = room.you === null;
   const n = view.config.players;
   const [selected, setSelected] = useState<string[]>([]);
   const [flash, setFlash] = useState<string | null>(null);
@@ -208,15 +210,15 @@ export function Table({ client }: { client: GameClient }) {
   const guoheSecs = guoheDeadline === null ? null : Math.max(0, Math.ceil((guoheDeadline - now) / 1000));
   const zaofanSecs = zaofanDeadline === null ? null : Math.max(0, Math.ceil((zaofanDeadline - now) / 1000));
   // 造反：手里分数太少或太多时可以推倒重来；点一次先确认，免得误点
-  const canZaofan = (view.phase === 'bottom' || view.phase === 'callFriend') && zaofanError(view, me, view.hand) === null;
+  const canZaofan = !spectating && (view.phase === 'bottom' || view.phase === 'callFriend') && zaofanError(view, me, view.hand) === null;
   const [confirmZaofan, setConfirmZaofan] = useState(false);
   useEffect(() => { if (!canZaofan) setConfirmZaofan(false); }, [canZaofan]);
   const zaofanPassed = view.phase === 'bottom' ? client.zaofanPassed : [];
   // 四人过河：我能不能过河、是不是在等我还牌
-  const guoheAsked = view.phase === 'guohe' && Boolean(view.guohe?.asked.includes(me));
-  const guoheReturning = view.phase === 'guohe' && Boolean(view.guohe?.crossings.some((c) => c.to === me && !c.done));
+  const guoheAsked = !spectating && view.phase === 'guohe' && Boolean(view.guohe?.asked.includes(me));
+  const guoheReturning = !spectating && view.phase === 'guohe' && Boolean(view.guohe?.crossings.some((c) => c.to === me && !c.done));
   // 轮到我决定抄不抄底：手里能抄的对子（规则和服务端同一份）
-  const myChaodiOpts = view.phase === 'chaodi' && view.currentTurn === me ? chaodiOptions(view.hand, view) : [];
+  const myChaodiOpts = !spectating && view.phase === 'chaodi' && view.currentTurn === me ? chaodiOptions(view.hand, view) : [];
   // 点了「不反」的人；有人亮主、加固或反主后服务端清空，按钮重新可点
   const passed = view.phase === 'declaring' ? client.declarePassed : [];
   const prevHandIds = useRef<Set<string>>(new Set());
@@ -318,14 +320,14 @@ export function Table({ client }: { client: GameClient }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastTrickKey]);
 
-  const myTurn = view.phase === 'playing' && view.currentTurn === me;
+  const myTurn = !spectating && view.phase === 'playing' && view.currentTurn === me;
   useEffect(() => {
     if (myTurn && !prevTurn.current) sound.turn();
     prevTurn.current = myTurn;
   }, [myTurn]);
 
   // 自动提示亮主：新出现能亮的组合时响一声，牌面高亮
-  const declareOpts = useMemo(() => declarationOptions(view), [view.hand, view.phase, view.level, view.declaration]);
+  const declareOpts = useMemo(() => (spectating ? [] : declarationOptions(view)), [spectating, view.hand, view.phase, view.level, view.declaration]);
   const declarableIds = useMemo(() => new Set(declareOpts.flatMap((o) => o.cards.map((c) => c.id))), [declareOpts]);
   const prevDeclareKey = useRef('');
   useEffect(() => {
@@ -335,7 +337,7 @@ export function Table({ client }: { client: GameClient }) {
   }, [declareOpts]);
 
   const selectedCards = useMemo(() => view.hand.filter((c) => selected.includes(c.id)), [view.hand, selected]);
-  const toggle = (id: string) => { sound.unlock(); setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id])); };
+  const toggle = (id: string) => { sound.unlock(); if (spectating) return; setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id])); };
   const send = (m: ClientMessage) => client.send(m);
   const ctx = { level: view.level, trumpSuit: view.trumpSuit };
   // 手牌从大到小、从左到右：view.hand 是从小到大排好的，倒过来显示
@@ -403,7 +405,7 @@ export function Table({ client }: { client: GameClient }) {
 
   // 扣完底之后、结算之前，庄家可以随时看自己扣的底
   // 只有最后埋底的人能看底（四人有人抄底就是抄底的人），服务端只给他发底牌
-  const myBottom = (view.phase === 'chaodi' || view.phase === 'guohe' || view.phase === 'callFriend' || view.phase === 'playing') && view.bottom?.length ? view.bottom : null;
+  const myBottom = (spectating || view.phase === 'chaodi' || view.phase === 'guohe' || view.phase === 'callFriend' || view.phase === 'playing') && view.bottom?.length ? view.bottom : null;
 
   const pct = (p: Pos): React.CSSProperties => ({ left: `${p.x}%`, top: `${p.y}%` });
 
@@ -428,6 +430,9 @@ export function Table({ client }: { client: GameClient }) {
         ) : (
           <span className="tb-item">底 {view.bottomCount}{view.phase === 'dealing' ? ` · 剩 ${view.deckRemaining}` : ''}</span>
         )}
+        {(spectating || room.spectators.length > 0) && (
+          <span className="tb-item" title={room.spectators.join('、')}>{spectating ? '观看中' : `${room.spectators.length} 人观看`}</span>
+        )}
         <button className={`tb-item tb-click tb-sound ${soundOn ? '' : 'off'}`} onClick={() => setSoundOn(sound.toggle())} aria-label="音效">{soundOn ? '🔊 音效' : '🔇 静音'}</button>
         <button className={`tb-menu ${menuOpen ? 'open' : ''}`} onClick={() => setMenuOpen((v) => !v)} aria-label="菜单" aria-expanded={menuOpen}>⋯ 菜单</button>
       </header>
@@ -451,8 +456,9 @@ export function Table({ client }: { client: GameClient }) {
           )}
           <button className="ghost small danger" onClick={() => {
             setMenuOpen(false);
+            if (spectating) { send({ t: 'leaveRoom' }); return; }
             if (confirm(`退出本局？你的座位由机器人接管${room.youAreHost ? '，房主交给下一位真人' : ''}。之后用房间码 ${room.code} 重新进入可以接回机器人的座位。`)) send({ t: 'leaveRoom' });
-          }}>退出本局</button>
+          }}>{spectating ? '退出观看' : '退出本局'}</button>
           <button className="ghost small" onClick={() => setMenuOpen(false)}>取消</button>
         </div>
       )}
@@ -482,7 +488,14 @@ export function Table({ client }: { client: GameClient }) {
           // 过河是同时问的，正在决定或等着还牌的人都亮起来
           const isTurn = view.currentTurn === seat || (view.phase === 'guohe' && Boolean(view.guohe?.asked.includes(seat) || view.guohe?.crossings.some((c) => c.to === seat && !c.done)));
           return (
-            <div key={seat} data-seat={seat} className={`badge ${isTurn ? 'turn' : ''} ${role.cls}`} style={pct(posOf(seat))}>
+            <div
+              key={seat}
+              data-seat={seat}
+              className={`badge ${isTurn ? 'turn' : ''} ${role.cls} ${spectating ? 'watchable' : ''}`}
+              style={pct(posOf(seat))}
+              onClick={spectating ? () => send({ t: 'watch', seat }) : undefined}
+              title={spectating ? `看 ${name(seat)} 的牌` : undefined}
+            >
               <span className="b-avatar"><Avatar name={name(seat)} isBot={Boolean(s?.isBot)} size={40} /><span className={`role role-dot ${role.cls}`}>{role.text}</span></span>
               <span className="b-name">{name(seat)}</span>
               <span className="b-meta">
@@ -525,7 +538,7 @@ export function Table({ client }: { client: GameClient }) {
         {/* 桌上有牌时把提示挪到左上角，免得压住出的牌 */}
         <div className={`center-msg ${shownPlays.length > 0 && view.phase === 'playing' ? 'aside' : ''}`} style={pct(CENTER)}>
           <div className={`status ${flash ? 'flash' : ''} ${peeking ? 'peeking' : ''}`}>
-            {peeking ? `上一轮：${name(peeking.winner)} 赢${peeking.points ? `，${peeking.points} 分` : ''}` : (flash ?? statusText(view, name))}
+            {peeking ? `上一轮：${name(peeking.winner)} 赢${peeking.points ? `，${peeking.points} 分` : ''}` : (flash ?? statusText(spectating ? { ...view, seat: -1 } : view, name))}
           </div>
           {view.declaration && (view.phase === 'dealing' || view.phase === 'declaring') && (
             <div className="declared"><span>{name(view.declaration.seat)} 亮</span><CardRow cards={view.declaration.cards} small /></div>
@@ -570,7 +583,7 @@ export function Table({ client }: { client: GameClient }) {
               ))}
             </div>
           )}
-          {view.phase === 'callFriend' && view.dealer === me && <FriendCallForm view={view} send={send} />}
+          {!spectating && view.phase === 'callFriend' && view.dealer === me && <FriendCallForm view={view} send={send} />}
         </div>
       </section>
 
@@ -601,6 +614,16 @@ export function Table({ client }: { client: GameClient }) {
           ))}
         </div>
         <div className="actions">
+          {spectating ? (
+            <>
+              <div className="spectate-note">观看中<br />点头像换着看每个人的牌</div>
+              {view.phase === 'playing' && (
+                <button className={`ghost peek-btn ${peeking ? 'on' : ''}`} disabled={!canPeek} onClick={togglePeek} aria-pressed={Boolean(peeking)}>
+                  {peeking ? '收起' : '上一轮'}
+                </button>
+              )}
+            </>
+          ) : (<>
           {view.phase === 'declaring' && (
             <button className="ghost" disabled={passed.includes(me)} onClick={() => send({ t: 'passDeclare' })}>
               {passed.includes(me) ? '已不反，等其他人' : '不反'}
@@ -656,12 +679,13 @@ export function Table({ client }: { client: GameClient }) {
               </button>
             </>
           )}
+          </>)}
         </div>
       </section>
 
       {sheet === 'declarations' && <DeclarationLogSheet view={view} name={name} onClose={() => setSheet(null)} />}
-      {sheet === 'bottom' && myBottom && <BottomSheet view={view} cards={myBottom} onClose={() => setSheet(null)} />}
-      {sheet === 'plays' && <PlayLogSheet view={view} name={name} open={room.playLogOpen} onClose={() => setSheet(null)} />}
+      {sheet === 'bottom' && myBottom && <BottomSheet view={view} cards={myBottom} spectating={spectating} onClose={() => setSheet(null)} />}
+      {sheet === 'plays' && <PlayLogSheet view={view} name={name} open={room.playLogOpen} spectating={spectating} onClose={() => setSheet(null)} />}
 
       {(view.phase === 'roundEnd' || view.phase === 'gameOver') && view.lastRound && (
         <RoundEnd

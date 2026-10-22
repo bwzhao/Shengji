@@ -54,7 +54,7 @@ export function Home({ client }: { client: GameClient }) {
       </div>
       <div className="panel">
         <div className="panel-title">加入</div>
-        <div className="hint">房间已开局也能进，会接管机器人的座位</div>
+        <div className="hint">房间已开局也能进，会接管机器人的座位；没有机器人座位就进去观看</div>
         <div className="row">
           <input className="code" value={code} maxLength={4} placeholder="房间码" onChange={(e) => setCode(e.target.value.toUpperCase())} />
           <button className="primary" disabled={!ready || code.length !== 4} onClick={() => { ensureName(); setTimeout(() => client.send({ t: 'joinRoom', code }), 50); }}>
@@ -75,6 +75,9 @@ export function Home({ client }: { client: GameClient }) {
                   <button className="primary small" disabled={!r.joinable} onClick={() => { ensureName(); setTimeout(() => client.send({ t: 'joinRoom', code: r.code }), 50); }}>
                     {r.joinable ? (r.started ? '接管机器人' : '进入') : '已满'}
                   </button>
+                  {r.started && (
+                    <button className="ghost small" onClick={() => { ensureName(); setTimeout(() => client.send({ t: 'joinRoom', code: r.code, watch: true }), 50); }}>观看</button>
+                  )}
                   {r.canClose && (
                     <button className="ghost small danger" onClick={() => { if (confirm(`关闭房间 ${r.code}？里面的牌局会被删除。`)) client.send({ t: 'closeRoom', code: r.code }); }}>关闭</button>
                   )}
@@ -83,7 +86,7 @@ export function Home({ client }: { client: GameClient }) {
               <div className="room-main">
                 <span className="room-meta">{r.players} 人 · {phaseText(r)}</span>
                 <span className="room-meta">房主 {r.hostName}</span>
-                <span className="room-names">{r.names.join('、')}{r.bots ? `${r.names.length ? '、' : ''}机器人×${r.bots}` : ''}{r.humansOnline < r.humans ? ` · ${r.humans - r.humansOnline} 人离线` : ''}</span>
+                <span className="room-names">{r.names.join('、')}{r.bots ? `${r.names.length ? '、' : ''}机器人×${r.bots}` : ''}{r.humansOnline < r.humans ? ` · ${r.humans - r.humansOnline} 人离线` : ''}{r.spectators > 0 ? ` · ${r.spectators} 人观看` : ''}</span>
               </div>
             </div>
           ))}

@@ -134,10 +134,8 @@ wss.on('connection', (ws: AliveSocket) => {
       case 'joinRoom': {
         const r = registry.rooms.get(msg.code.toUpperCase());
         if (!r) return send(ws, { t: 'error', code: 'NO_ROOM', message: '房间不存在' });
-        const needsSeat = r.started && r.seatOf(token) === null;
-        if (needsSeat && !r.seats.some((s) => s?.isBot)) {
-          return send(ws, { t: 'error', code: 'STARTED', message: '这个房间已经开局，也没有机器人座位可以接管' });
-        }
+        // 开局后进来：要观看、或者没有机器人座位可接管，就进来观看；否则接管一个机器人座位
+        const needsSeat = r.started && r.seatOf(token) === null && msg.watch !== true && r.seats.some((s) => s?.isBot);
         const prev = room();
         if (prev && prev !== r) prev.leave(token);
         session.roomCode = r.code;
@@ -166,6 +164,7 @@ wss.on('connection', (ws: AliveSocket) => {
       case 'start': return r.start(token);
       case 'setBots': return r.setBots(token, msg.strength);
       case 'setPlayLog': return r.setPlayLog(token, msg.open);
+      case 'watch': return r.watch(token, msg.seat);
       case 'nextRound': return r.act(token, { type: 'nextRound' });
       case 'restartRound': return r.restartRound(token);
       case 'abortGame': return r.abortGame(token);

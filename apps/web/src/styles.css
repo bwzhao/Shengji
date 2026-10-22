@@ -187,6 +187,8 @@ b { font-weight: 700; }
 .hand .card.dealt { animation: deal-in .35s cubic-bezier(.2,.8,.2,1); }
 .actions { display: flex; gap: 10px; justify-content: flex-end; align-items: center; }
 .actions .primary { min-width: 128px; }
+.spectate-note { font-size: 13px; color: var(--muted); text-align: center; line-height: 1.4; }
+.badge.watchable { cursor: pointer; }
 
 /* 牌面 */
 .card { position: relative; width: var(--w, 60px); height: calc(var(--w, 60px) * 1.43); border-radius: 8px; background: var(--card-bg); color: var(--card-ink);

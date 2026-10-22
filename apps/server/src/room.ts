@@ -1,6 +1,6 @@
 /** 一个房间：大厅座位管理 + 驾驭引擎状态机 + 机器人 + 广播。 */
 import {
-  applyAction, createGame, createRng, currentTurn, defaultConfig, waitingSeats, LEVEL_SEQUENCE, restartRound, smartAction, smartDeclare, tuneForMode, viewFor,
+  applyAction, createGame, createRng, currentTurn, defaultConfig, waitingSeats, LEVEL_SEQUENCE, restartRound, smartAction, smartDeclare, spectatorView, tuneForMode, viewFor,
   type Action, type GameConfig, type GameEvent, type GameState, type PlayerView, type Rng, type Seat,
 } from '@shengji/engine';
 import type { RoomInfo, RoomSummary, RoundReplay, ServerMessage } from '@shengji/protocol';
@@ -13,6 +13,8 @@ export interface Member {
   readonly token: string;
   name: string;
   socket: WebSocket | null;
+  /** 没坐下的人（观看者）正在看哪个座位的手牌；不设时看房主的座位 */
+  watching?: Seat;
 }
 
 interface SeatSlot {
@@ -183,6 +185,7 @@ export class Room {
       started: this.started,
       botStrength: this.botStrength,
       playLogOpen: this.playLogOpen,
+      spectators: this.spectators().map((m) => m.name),
       you: this.seatOf(forToken),
       youAreHost: forToken === this.hostToken,
     };
@@ -243,6 +246,7 @@ export class Room {
       names,
       hostName: hostSeat !== null ? this.nameOfSeat(hostSeat, this.seats[hostSeat] ?? null) : (this.members.get(this.hostToken)?.name ?? '?'),
       joinable: this.seats.some((s) => !s || s.isBot),
+      spectators: this.started ? this.spectators().length : 0,
       canClose: this.canClose(forToken),
       lastActivity: this.lastActivity,
     };
@@ -254,8 +258,8 @@ export class Room {
   }
 
   /** 发给某个座位的视图；出牌记录没开放时每一墩只留他自己出的牌（上一墩 lastTrick 照常完整，供「上一轮」） */
-  private viewOf(seat: Seat): PlayerView {
-    const view = viewFor(this.state as GameState, seat);
+  private viewOf(seat: Seat, spectator = false): PlayerView {
+    const view = (spectator ? spectatorView : viewFor)(this.state as GameState, seat);
     if (this.playLogOpen) return view;
     return { ...view, tricks: view.tricks.map((t) => ({ ...t, plays: t.plays.filter((p) => p.seat === seat) })) };
   }
@@ -270,6 +274,29 @@ export class Room {
       const filtered = events.map((e) => (e.type === 'cardDealt' && e.seat !== seat ? { ...e, card: hiddenCard } : e));
       this.send(m, { t: 'state', seq: this.seq, view: this.viewOf(seat), events: filtered, ...this.declareTimer(), ...this.chaodiTimerInfo(), ...this.guoheTimerInfo(), ...this.zaofanInfo() });
     }
+    // 观看者：每个人的牌都能看，发到谁手里的牌不用遮
+    for (const m of this.spectators()) {
+      this.send(m, { t: 'state', seq: this.seq, view: this.viewOf(this.watchedSeat(m), true), events, ...this.declareTimer(), ...this.chaodiTimerInfo(), ...this.guoheTimerInfo(), ...this.zaofanInfo() });
+    }
+  }
+
+  /** 在线、没坐下的人；开局后就是观看者 */
+  private spectators(): Member[] {
+    return [...this.members.values()].filter((m) => m.socket && m.socket.readyState === m.socket.OPEN && this.seatOf(m.token) === null);
+  }
+
+  /** 观看者正在看的座位：自己选的，没选就看房主，房主不在座位上就看 0 号位 */
+  private watchedSeat(m: Member): Seat {
+    return m.watching ?? this.seatOf(this.hostToken) ?? 0;
+  }
+
+  /** 观看者换着看某个座位的手牌 */
+  watch(token: string, seat: Seat): void {
+    const m = this.members.get(token);
+    if (!m || this.seatOf(token) !== null) return this.error(token, 'NOT_SPECTATOR', '你在座位上，不能换着看别人的牌');
+    if (seat < 0 || seat >= this.config.players) return this.error(token, 'BAD_SEAT', '没有这个座位');
+    m.watching = seat;
+    this.sync(token);
   }
 
   /** 亮主还剩多少毫秒、谁点了不反，随 state 消息下发；发剩余时间而不是截止时刻，客户端时钟不准也没关系 */
@@ -342,8 +369,9 @@ export class Room {
     const m = this.members.get(token);
     this.send(m, { t: 'room', room: this.info(token) });
     const seat = this.seatOf(token);
-    if (this.state && seat !== null) {
-      this.send(m, { t: 'state', seq: this.seq, view: this.viewOf(seat), events: [], ...this.declareTimer(), ...this.chaodiTimerInfo(), ...this.guoheTimerInfo(), ...this.zaofanInfo() });
+    if (this.state && m) {
+      const view = seat !== null ? this.viewOf(seat) : this.viewOf(this.watchedSeat(m), true);
+      this.send(m, { t: 'state', seq: this.seq, view, events: [], ...this.declareTimer(), ...this.chaodiTimerInfo(), ...this.guoheTimerInfo(), ...this.zaofanInfo() });
     }
   }
 

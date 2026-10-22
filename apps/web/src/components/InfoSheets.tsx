@@ -57,14 +57,16 @@ export function DeclarationLogSheet({ view, name, onClose }: { view: PlayerView;
  * 本局每一墩自己出的牌。房主开放后也能看每墩所有人出的牌；没开放时「每墩全部」锁住，
  * 服务端也只发自己出的牌。
  */
-export function PlayLogSheet({ view, name, open, onClose }: { view: PlayerView; name: (s: Seat) => string; open: boolean; onClose: () => void }) {
+export function PlayLogSheet({ view, name, open, spectating = false, onClose }: { view: PlayerView; name: (s: Seat) => string; open: boolean; spectating?: boolean; onClose: () => void }) {
   const [allPlays, setAllPlays] = useState(false);
+  // 观看者看的是正在跟的那个人
+  const self = spectating ? name(view.seat) : '我';
   const mineOnly = !open || !allPlays;
   const ctx = { level: view.level, trumpSuit: view.trumpSuit };
   return (
     <Sheet title="出牌记录" onClose={onClose}>
       <div className="seg">
-        <button className={mineOnly ? 'on' : ''} onClick={() => setAllPlays(false)}>只看我出的</button>
+        <button className={mineOnly ? 'on' : ''} onClick={() => setAllPlays(false)}>只看{self}出的</button>
         <button className={mineOnly ? '' : 'on'} disabled={!open} onClick={() => setAllPlays(true)}>{open ? '每墩全部' : '🔒 每墩全部'}</button>
       </div>
       {!open && <div className="hint">房主没有开放查看别人出的牌，开局前可以在房间里打开。</div>}
@@ -74,10 +76,10 @@ export function PlayLogSheet({ view, name, open, onClose }: { view: PlayerView; 
         <ol className="play-log">
           {view.tricks.map((t, i) => (
             <li key={i}>
-              <div className="pl-head">第 {i + 1} 墩 · {t.winner === view.seat ? '我' : name(t.winner)} 赢{t.points > 0 ? `，${t.points} 分` : ''}</div>
+              <div className="pl-head">第 {i + 1} 墩 · {t.winner === view.seat ? self : name(t.winner)} 赢{t.points > 0 ? `，${t.points} 分` : ''}</div>
               {t.plays.filter((p) => !mineOnly || p.seat === view.seat).map((p) => (
                 <div key={p.seat} className={`pl-row ${p.seat === view.seat ? 'mine' : ''}`}>
-                  <span className="pl-who">{p.seat === view.seat ? '我' : name(p.seat)}{p.seat === t.leader ? ' · 首' : ''}</span>
+                  <span className="pl-who">{p.seat === view.seat ? self : name(p.seat)}{p.seat === t.leader ? ' · 首' : ''}</span>
                   <CardRow cards={sortCardsDesc(p.cards, ctx)} small />
                 </div>
               ))}
@@ -90,12 +92,12 @@ export function PlayLogSheet({ view, name, open, onClose }: { view: PlayerView; 
 }
 
 /** 庄家看自己扣下的底牌 */
-export function BottomSheet({ view, cards, onClose }: { view: PlayerView; cards: readonly Card[]; onClose: () => void }) {
+export function BottomSheet({ view, cards, spectating = false, onClose }: { view: PlayerView; cards: readonly Card[]; spectating?: boolean; onClose: () => void }) {
   const points = cards.reduce((sum, c) => sum + cardPoints(c), 0);
   return (
-    <Sheet title="我扣的底" onClose={onClose}>
+    <Sheet title={spectating ? '底牌' : '我扣的底'} onClose={onClose}>
       <CardRow cards={sortCardsDesc(cards, { level: view.level, trumpSuit: view.trumpSuit })} />
-      <div className="hint">{cards.length} 张，{points} 分。只有你能看到，结算时公开。</div>
+      <div className="hint">{cards.length} 张，{points} 分。{spectating ? '观看者能看到，玩家只有埋底的人看得到。' : '只有你能看到，结算时公开。'}</div>
     </Sheet>
   );
 }
