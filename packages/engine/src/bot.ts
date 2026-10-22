@@ -2,10 +2,10 @@
 import { RANKS, SUITS, identityKey, type Card, type Suit } from './cards.ts';
 import { decompose } from './combos.ts';
 import { generateFollow } from './follow.ts';
-import { chaodiOptions, checkDeclaration, ctxOf, currentTurn, declareLevel, type DeclarationContext } from './reducer.ts';
+import { chaodiOptions, checkDeclaration, ctxOf, currentTurn, declareLevel, GUOHE_CARDS, type DeclarationContext } from './reducer.ts';
 import type { Rng } from './rng.ts';
 import type { Action, FriendCallSpec, GameState, Seat } from './state.ts';
-import { groupOf, type Group } from './trump.ts';
+import { groupOf, isTrump, type Group } from './trump.ts';
 
 export interface BotOptions {
   /** 有机会亮主时亮的概率 */
@@ -14,9 +14,11 @@ export interface BotOptions {
   readonly throwProbability: number;
   /** 四人局轮到自己、手里有能抄底的对子时抄底的概率 */
   readonly chaodiProbability?: number;
+  /** 能过河时过河的概率 */
+  readonly guoheProbability?: number;
 }
 
-export const defaultBotOptions: BotOptions = { declareProbability: 0.5, throwProbability: 0.1, chaodiProbability: 0.3 };
+export const defaultBotOptions: BotOptions = { declareProbability: 0.5, throwProbability: 0.1, chaodiProbability: 0.3, guoheProbability: 0.5 };
 
 /** 手中所有可以压过当前亮主的亮法。 */
 export function possibleDeclarations(s: GameState, seat: Seat): Card[][] {
@@ -63,6 +65,24 @@ function botChaodi(s: GameState, seat: Seat, rng: Rng, opts: BotOptions): Action
     return { type: 'chaodi', seat, cards: rng.pick(options).map((c) => c.id) };
   }
   return { type: 'passChaodi', seat };
+}
+
+/** 随机机器人过河：能过就按概率过（主牌全给，不够的随便补）；对家过河过来就随便还 5 张副牌 */
+function botGuohe(s: GameState, seat: Seat, rng: Rng, opts: BotOptions): Action | null {
+  const g = s.guohe;
+  if (!g) return null;
+  const ctx = ctxOf(s);
+  const hand = s.hands[seat] ?? [];
+  const trumps = hand.filter((c) => isTrump(c, ctx));
+  const plain = rng.shuffle(hand.filter((c) => !isTrump(c, ctx)));
+  if (g.crossings.some((c) => c.to === seat && c.returned === null)) {
+    return { type: 'guoheReturn', seat, cards: [...plain, ...trumps].slice(0, GUOHE_CARDS).map((c) => c.id) };
+  }
+  if (!g.asked.includes(seat)) return null;
+  if (rng.next() < (opts.guoheProbability ?? 0)) {
+    return { type: 'guohe', seat, cards: [...trumps, ...plain].slice(0, GUOHE_CARDS).map((c) => c.id) };
+  }
+  return { type: 'passGuohe', seat };
 }
 
 export function botExchangeBottom(s: GameState, seat: Seat, rng: Rng): Action {
@@ -122,6 +142,7 @@ export function botAction(s: GameState, seat: Seat, rng: Rng, opts: BotOptions =
   switch (s.phase) {
     case 'bottom': return currentTurn(s) === seat ? botExchangeBottom(s, seat, rng) : null;
     case 'chaodi': return currentTurn(s) === seat ? botChaodi(s, seat, rng, opts) : null;
+    case 'guohe': return botGuohe(s, seat, rng, opts);
     case 'callFriend': return seat === s.dealer ? botCallFriend(s, seat, rng) : null;
     case 'playing': return currentTurn(s) === seat ? botPlay(s, seat, rng, opts) : null;
     default: return null;

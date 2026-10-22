@@ -30,6 +30,8 @@ export interface GameConfig {
   readonly levelStops?: readonly number[];
   /** 四人抄底：庄家埋底后其他人可以用一对常主抄底重新埋。旧存档里没有就不抄底 */
   readonly chaodi?: boolean;
+  /** 四人过河：抄底问完后，主牌不多于 5 张的人可以和对家换 5 张牌。旧存档里没有就不过河 */
+  readonly guohe?: boolean;
   /** 庄家阵营守住时原庄家连庄（五人找朋友）；不设时交给最近的朋友 */
   readonly dealerKeepsOnHold?: boolean;
 }
@@ -55,6 +57,7 @@ export function defaultConfig(players: PlayerCount): GameConfig {
       levelSequence: PARTNERS_LEVEL_SEQUENCE,
       levelStops: PARTNERS_LEVEL_STOPS,
       chaodi: true,
+      guohe: true,
     };
   }
   const five = players === 5;

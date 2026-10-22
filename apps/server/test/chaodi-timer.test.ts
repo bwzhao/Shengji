@@ -29,7 +29,7 @@ function step(s: GameState, a: Action): GameState {
 /** 首局 1 号位亮主坐庄、埋完底，轮到 2、3、0 号位依次决定抄不抄 */
 function chaodiState(): GameState {
   for (let k = 0; ; k++) {
-    let s = createGame(defaultConfig(4), `chaodi-timer-${k}`);
+    let s = createGame({ ...defaultConfig(4), guohe: false }, `chaodi-timer-${k}`);
     while (s.phase === 'dealing') s = step(s, { type: 'dealCard' });
     const option = declarationCandidates(s.hands[1] ?? [], s, 1)[0];
     if (!option) continue;

@@ -1,6 +1,6 @@
 /** 一个房间：大厅座位管理 + 驾驭引擎状态机 + 机器人 + 广播。 */
 import {
-  applyAction, createGame, createRng, currentTurn, defaultConfig, LEVEL_SEQUENCE, restartRound, smartAction, smartDeclare, tuneForMode, viewFor,
+  applyAction, createGame, createRng, currentTurn, defaultConfig, waitingSeats, LEVEL_SEQUENCE, restartRound, smartAction, smartDeclare, tuneForMode, viewFor,
   type Action, type GameConfig, type GameEvent, type GameState, type Rng, type Seat,
 } from '@shengji/engine';
 import type { RoomInfo, RoomSummary, RoundReplay, ServerMessage } from '@shengji/protocol';
@@ -30,6 +30,8 @@ export interface RoomOptions {
   readonly declareGraceMs: number;
   /** 四人抄底：轮到的真人想多久，到时当作不抄。不设是 30 秒 */
   readonly chaodiGraceMs?: number;
+  /** 四人过河：问能过河的人时大家共用的思考时间，到时没决定的当作不过。不设是 60 秒 */
+  readonly guoheGraceMs?: number;
   readonly botDelayMs: number;
   /** 搜索机器人每手的时间预算 */
   readonly searchBudgetMs: number;
@@ -64,6 +66,9 @@ export class Room {
   private chaodiAsked: Seat | null = null;
   private chaodiDeadline: number | null = null;
   private chaodiTimer: NodeJS.Timeout | null = null;
+  /** 过河：截止时刻和计时器；只在还有真人没决定过不过河时计时，给牌还牌不计时 */
+  private guoheDeadline: number | null = null;
+  private guoheTimer: NodeJS.Timeout | null = null;
   private botTimer: NodeJS.Timeout | null = null;
   /** 真人只剩唯一合法出法时自动代出 */
   private autoTimer: NodeJS.Timeout | null = null;
@@ -237,7 +242,7 @@ export class Room {
       const m = this.members.get(slot.token);
       if (!m) continue;
       const filtered = events.map((e) => (e.type === 'cardDealt' && e.seat !== seat ? { ...e, card: hiddenCard } : e));
-      this.send(m, { t: 'state', seq: this.seq, view: viewFor(this.state, seat), events: filtered, ...this.declareTimer(), ...this.chaodiTimerInfo() });
+      this.send(m, { t: 'state', seq: this.seq, view: viewFor(this.state, seat), events: filtered, ...this.declareTimer(), ...this.chaodiTimerInfo(), ...this.guoheTimerInfo() });
     }
   }
 
@@ -253,13 +258,19 @@ export class Room {
     return { chaodiLeftMs: Math.max(0, this.chaodiDeadline - Date.now()) };
   }
 
+  /** 过河还剩多少毫秒（还有真人没决定过不过河时才有） */
+  private guoheTimerInfo(): { guoheLeftMs?: number } {
+    if (this.state?.phase !== 'guohe' || this.guoheDeadline === null) return {};
+    return { guoheLeftMs: Math.max(0, this.guoheDeadline - Date.now()) };
+  }
+
   /** 重连或首次连接时补发当前状态 */
   sync(token: string): void {
     const m = this.members.get(token);
     this.send(m, { t: 'room', room: this.info(token) });
     const seat = this.seatOf(token);
     if (this.state && seat !== null) {
-      this.send(m, { t: 'state', seq: this.seq, view: viewFor(this.state, seat), events: [], ...this.declareTimer(), ...this.chaodiTimerInfo() });
+      this.send(m, { t: 'state', seq: this.seq, view: viewFor(this.state, seat), events: [], ...this.declareTimer(), ...this.chaodiTimerInfo(), ...this.guoheTimerInfo() });
     }
   }
 
@@ -454,6 +465,7 @@ export class Room {
     this.searchEpoch++;
     this.updateDeclareWindow(events);
     this.updateChaodiWindow();
+    this.updateGuoheWindow();
     this.broadcastState(events);
     this.onChange();
     this.armTimers();
@@ -467,6 +479,30 @@ export class Room {
     this.clearChaodiTimer();
     this.chaodiAsked = asked;
     this.chaodiDeadline = asked !== null && !this.seats[asked]?.isBot ? Date.now() + (this.opts.chaodiGraceMs ?? 30_000) : null;
+  }
+
+  /** 过河：大家共用一个倒计时，进入过河时开始；真人都决定了（只剩给牌还牌）或离开过河阶段就停 */
+  private updateGuoheWindow(): void {
+    const s = this.state;
+    const humanAsked = s?.phase === 'guohe' && (s.guohe?.asked ?? []).some((seat) => !this.seats[seat]?.isBot);
+    if (humanAsked) {
+      this.guoheDeadline ??= Date.now() + (this.opts.guoheGraceMs ?? 60_000);
+      return;
+    }
+    if (this.guoheTimer) { clearTimeout(this.guoheTimer); this.guoheTimer = null; }
+    this.guoheDeadline = null;
+  }
+
+  private guoheTimeUp(): void {
+    this.guoheTimer = null;
+    const s = this.state;
+    if (!s || s.phase !== 'guohe') return;
+    // 没有真人在线就暂停，真人回来后重新计时
+    if (!this.humansOnline()) { this.guoheDeadline = null; return; }
+    for (const seat of [...(s.guohe?.asked ?? [])]) {
+      if (this.state?.phase !== 'guohe' || !this.state.guohe?.asked.includes(seat)) continue;
+      this.apply({ type: 'passGuohe', seat });
+    }
   }
 
   private clearChaodiTimer(): void {
@@ -535,6 +571,14 @@ export class Room {
         if (this.chaodiAsked !== null && !this.seats[this.chaodiAsked]?.isBot) {
           this.chaodiDeadline ??= Date.now() + (this.opts.chaodiGraceMs ?? 30_000);
           if (!this.chaodiTimer) this.chaodiTimer = setTimeout(() => this.chaodiTimeUp(), Math.max(0, this.chaodiDeadline - Date.now()));
+        }
+        break;
+      case 'guohe':
+        this.scheduleBot();
+        // 还有真人没决定：大家共用 60 秒，到时当作不过（暂停后回来重新给满）
+        if ((s.guohe?.asked ?? []).some((seat) => !this.seats[seat]?.isBot)) {
+          this.guoheDeadline ??= Date.now() + (this.opts.guoheGraceMs ?? 60_000);
+          if (!this.guoheTimer) this.guoheTimer = setTimeout(() => this.guoheTimeUp(), Math.max(0, this.guoheDeadline - Date.now()));
         }
         break;
       case 'bottom':
@@ -612,16 +656,15 @@ export class Room {
   private scheduleBot(): void {
     if (this.botTimer || !this.state) return;
     if (!this.humansOnline()) return; // 没有真人在线，机器人暂停
-    const turn = currentTurn(this.state);
-    if (turn === null || !this.seats[turn]?.isBot) return;
+    if (this.botToAct() === null) return;
     // 加强模式下搜索本身就是思考时间，固定等待缩短
     const searching = this.botStrength === 'strong' && (this.state.phase === 'playing' || this.state.phase === 'bottom' || this.state.phase === 'callFriend');
     const delay = searching ? Math.min(this.opts.botDelayMs, 100) : this.opts.botDelayMs;
     this.botTimer = setTimeout(() => {
       this.botTimer = null;
       if (!this.state || !this.humansOnline()) return;
-      const t = currentTurn(this.state);
-      if (t === null || !this.seats[t]?.isBot) return;
+      const t = this.botToAct();
+      if (t === null) return;
       if (this.botStrength === 'strong' && (this.state.phase === 'playing' || this.state.phase === 'bottom' || this.state.phase === 'callFriend')) {
         void this.searchAndPlay(t);
         return;
@@ -629,6 +672,12 @@ export class Room {
       const a = smartAction(this.state, t, this.rng);
       if (a) this.apply(a);
     }, delay);
+  }
+
+  /** 现在该行动的机器人座位：一般是轮到的人；过河时同时问，挑第一个要行动的机器人 */
+  private botToAct(): Seat | null {
+    if (!this.state) return null;
+    return waitingSeats(this.state).find((seat) => this.seats[seat]?.isBot) ?? null;
   }
 
   /** 搜索机器人出牌：异步跑，期间局面若变了（重发、结束、有人接管）就丢弃结果 */
@@ -698,6 +747,8 @@ export class Room {
     this.clearChaodiTimer();
     this.chaodiAsked = null;
     this.chaodiDeadline = null;
+    if (this.guoheTimer) { clearTimeout(this.guoheTimer); this.guoheTimer = null; }
+    this.guoheDeadline = null;
     if (this.botTimer) { clearTimeout(this.botTimer); this.botTimer = null; }
     if (this.autoTimer) { clearTimeout(this.autoTimer); this.autoTimer = null; }
   }

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { defaultConfig } from '../src/config.ts';
 import { simulateGame } from '../src/sim/run.ts';
 import { searchPlay } from '../src/searchbot.ts';
-import { applyAction, createGame, currentTurn } from '../src/reducer.ts';
+import { applyAction, createGame, currentTurn, waitingSeats } from '../src/reducer.ts';
 import { createRng } from '../src/rng.ts';
 import { smartAction, smartDeclare } from '../src/smartbot.ts';
 
@@ -49,7 +49,7 @@ describe('搜索机器人', () => {
     const step = (a: Parameters<typeof applyAction>[1]) => { const r = applyAction(s, a); if (!r.ok) throw new Error(r.error.message); s = r.state; };
     while (s.phase === 'dealing') { for (let i = 0; i < 5; i++) { const d = smartDeclare(s, i, rng); if (d) step(d); } step({ type: 'dealCard' }); }
     step({ type: 'closeDeclaring' });
-    while (s.phase !== 'playing') { const a = smartAction(s, currentTurn(s)!, rng); if (a) step(a); }
+    while (s.phase !== 'playing') { const a = smartAction(s, waitingSeats(s)[0]!, rng); if (a) step(a); }
     const seat = currentTurn(s)!;
     const r = searchPlay(s, seat, rng, { timeBudgetMs: 0, minSamples: 2, maxSamples: 2, maxCandidates: 3 });
     expect(r.samples).toBe(2);
@@ -68,7 +68,7 @@ describe('残局精确求解', () => {
     const step = (a: Parameters<typeof applyAction>[1]) => { const r = applyAction(s, a); if (!r.ok) throw new Error(r.error.message); s = r.state; };
     while (s.phase === 'dealing') { for (let i = 0; i < 5; i++) { const d = smartDeclare(s, i, rng); if (d) step(d); } step({ type: 'dealCard' }); }
     step({ type: 'closeDeclaring' });
-    while (s.phase !== 'playing') { const a = smartAction(s, currentTurn(s)!, rng); if (a) step(a); }
+    while (s.phase !== 'playing') { const a = smartAction(s, waitingSeats(s)[0]!, rng); if (a) step(a); }
     while (!(s.hands.every((h) => h.length <= 3) && (s.trick?.plays.length ?? 0) === 0)) { const t = currentTurn(s)!; step(smartAction(s, t, rng)!); }
     const seat = currentTurn(s)!;
     const moves = legalMoves(s, seat);
@@ -154,7 +154,7 @@ describe('四人对家模式的搜索强化', () => {
     const step = (a: Parameters<typeof applyAction>[1]) => { const r = applyAction(s, a); if (!r.ok) throw new Error(r.error.message); s = r.state; };
     while (s.phase === 'dealing') { for (let i = 0; i < 4; i++) { const d = smartDeclare(s, i, rng); if (d) step(d); } step({ type: 'dealCard' }); }
     step({ type: 'closeDeclaring' });
-    while (s.phase !== 'playing') { const a = smartAction(s, currentTurn(s)!, rng); if (a) step(a); }
+    while (s.phase !== 'playing') { const a = smartAction(s, waitingSeats(s)[0]!, rng); if (a) step(a); }
     while (!(s.hands.every((h) => h.length <= 5) && (s.trick?.plays.length ?? 0) === 0)) { const t = currentTurn(s)!; step(smartAction(s, t, rng)!); }
     const seat = currentTurn(s)!;
     const moves = legalMoves(s, seat);
@@ -178,7 +178,7 @@ describe('四人对家模式的搜索强化', () => {
     const step = (a: Parameters<typeof applyAction>[1]) => { const r = applyAction(s, a); if (!r.ok) throw new Error(r.error.message); s = r.state; };
     while (s.phase === 'dealing') { for (let i = 0; i < 4; i++) { const d = smartDeclare(s, i, rng); if (d) step(d); } step({ type: 'dealCard' }); }
     step({ type: 'closeDeclaring' });
-    while (s.phase !== 'playing') { const a = smartAction(s, currentTurn(s)!, rng); if (a) step(a); }
+    while (s.phase !== 'playing') { const a = smartAction(s, waitingSeats(s)[0]!, rng); if (a) step(a); }
     const me = (s.dealer! + 1) % 4;
     const ctx = ctxOf(s);
     const trumps = (hand: readonly { suit: string; rank: number; id: string; deck: number }[]) => hand.filter((c) => groupOf(c as never, ctx) === 'T').length;

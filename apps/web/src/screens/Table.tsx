@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  chaodiOptions, checkDeclaration, createRng, declarationCandidates, decompose, generateFollow, groupOf, identityKey, levelRank, rankName, sortCardsDesc, suitName, summarizePointCards, TOP_TRIPLE_TIER, trickWinner, tripleDeclarationTier, validateFollow,
+  chaodiOptions, checkDeclaration, checkGuoheGive, checkGuoheReturn, createRng, GUOHE_CARDS, isTrump, declarationCandidates, decompose, generateFollow, groupOf, identityKey, levelRank, rankName, sortCardsDesc, suitName, summarizePointCards, TOP_TRIPLE_TIER, trickWinner, tripleDeclarationTier, validateFollow,
   type Card, type GameEvent, type PlayerView, type Seat, type TrickPlay,
 } from '@shengji/engine';
 import type { ClientMessage } from '@shengji/protocol';
@@ -121,6 +121,17 @@ function statusText(view: PlayerView, name: (s: Seat) => string): string {
       if (view.currentTurn !== me) return `等 ${name(view.currentTurn!)} 决定抄不抄底`;
       return chaodiOptions(view.hand, view).length > 0 ? '要抄底吗？用一对级牌或一对王，拿起底牌重新埋' : '你没有能抄底的对子';
     }
+    case 'guohe': {
+      const g = view.guohe;
+      const toMe = g?.crossings.find((c) => c.to === me && !c.done);
+      if (toMe) return `${name(toMe.from)} 过河给你，选 ${GUOHE_CARDS} 张副牌还给他`;
+      if (g?.asked.includes(me)) return `你可以过河：主牌全部给对家，不够 ${GUOHE_CARDS} 张用别的牌补`;
+      const parts: string[] = [];
+      const returning = g?.crossings.filter((c) => !c.done).map((c) => c.to) ?? [];
+      if (returning.length) parts.push(`等 ${returning.map(name).join('、')} 还牌`);
+      if (g?.asked.length) parts.push(`${g.asked.map(name).join('、')} 在决定过不过河`);
+      return parts.join('，') || '过河';
+    }
     case 'callFriend': return view.dealer === me ? '叫朋友' : `${name(view.dealer!)} 正在叫朋友`;
     case 'playing': return view.currentTurn === me ? (view.trick?.plays.length ? '轮到你跟牌' : '轮到你出牌') : `等 ${name(view.currentTurn!)} 出牌`;
     case 'roundEnd': return '本局结束';
@@ -182,7 +193,8 @@ export function Table({ client }: { client: GameClient }) {
   // 发完牌后的亮主倒计时（有人亮主、加固或反主时服务端重新计时），以及四人抄底轮到真人时的倒计时
   const declareDeadline = view.phase === 'declaring' ? client.declareDeadline : null;
   const chaodiDeadline = view.phase === 'chaodi' ? client.chaodiDeadline : null;
-  const tickUntil = declareDeadline ?? chaodiDeadline;
+  const guoheDeadline = view.phase === 'guohe' ? client.guoheDeadline : null;
+  const tickUntil = declareDeadline ?? chaodiDeadline ?? guoheDeadline;
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (tickUntil === null) return;
@@ -192,6 +204,10 @@ export function Table({ client }: { client: GameClient }) {
   }, [tickUntil]);
   const declareSecs = declareDeadline === null ? null : Math.max(0, Math.ceil((declareDeadline - now) / 1000));
   const chaodiSecs = chaodiDeadline === null ? null : Math.max(0, Math.ceil((chaodiDeadline - now) / 1000));
+  const guoheSecs = guoheDeadline === null ? null : Math.max(0, Math.ceil((guoheDeadline - now) / 1000));
+  // 四人过河：我能不能过河、是不是在等我还牌
+  const guoheAsked = view.phase === 'guohe' && Boolean(view.guohe?.asked.includes(me));
+  const guoheReturning = view.phase === 'guohe' && Boolean(view.guohe?.crossings.some((c) => c.to === me && !c.done));
   // 轮到我决定抄不抄底：手里能抄的对子（规则和服务端同一份）
   const myChaodiOpts = view.phase === 'chaodi' && view.currentTurn === me ? chaodiOptions(view.hand, view) : [];
   // 点了「不反」的人；有人亮主、加固或反主后服务端清空，按钮重新可点
@@ -227,6 +243,10 @@ export function Table({ client }: { client: GameClient }) {
   useEffect(() => {
     setSelected((sel) => sel.filter((id) => view.hand.some((c) => c.id === id)));
   }, [view.hand]);
+  // 轮到我决定过不过河：先替我选上全部主牌，再自己补够 5 张
+  useEffect(() => {
+    if (guoheAsked) setSelected(view.hand.filter((c) => isTrump(c, view)).map((c) => c.id));
+  }, [guoheAsked]);
 
   // 事件：闪现文字 + 音效
   useEffect(() => {
@@ -254,6 +274,9 @@ export function Table({ client }: { client: GameClient }) {
         case 'regrab': texts.push('底牌里没有常主，重新发牌抢庄'); showFlip('底牌没有常主', e.flipped); break;
         case 'chaodi': texts.push(`${name(e.seat)} 抄底，改打${e.suit ? GLYPH[e.suit] : '无主'}`); sound.bark(); break;
         case 'chaodiPassed': texts.push(`${name(e.seat)} 不抄`); break;
+        case 'guohe': texts.push(`${name(e.seat)} 过河给 ${name(e.to)}`); sound.bark(); break;
+        case 'guoheReturned': texts.push(`${name(e.seat)} 还了 ${GUOHE_CARDS} 张牌`); break;
+        case 'guohePassed': texts.push(`${name(e.seat)} 不过河`); break;
         case 'redeal': texts.push('无人亮主，重新发牌'); break;
         case 'roundRestarted': texts.push('房主重发了本局'); break;
         default: break;
@@ -372,7 +395,7 @@ export function Table({ client }: { client: GameClient }) {
 
   // 扣完底之后、结算之前，庄家可以随时看自己扣的底
   // 只有最后埋底的人能看底（四人有人抄底就是抄底的人），服务端只给他发底牌
-  const myBottom = (view.phase === 'chaodi' || view.phase === 'callFriend' || view.phase === 'playing') && view.bottom?.length ? view.bottom : null;
+  const myBottom = (view.phase === 'chaodi' || view.phase === 'guohe' || view.phase === 'callFriend' || view.phase === 'playing') && view.bottom?.length ? view.bottom : null;
 
   const pct = (p: Pos): React.CSSProperties => ({ left: `${p.x}%`, top: `${p.y}%` });
 
@@ -448,7 +471,8 @@ export function Table({ client }: { client: GameClient }) {
         {positions.opps.map((seat) => {
           const role = roleOf(view, seat);
           const s = room.seats[seat];
-          const isTurn = view.currentTurn === seat;
+          // 过河是同时问的，正在决定或等着还牌的人都亮起来
+          const isTurn = view.currentTurn === seat || (view.phase === 'guohe' && Boolean(view.guohe?.asked.includes(seat) || view.guohe?.crossings.some((c) => c.to === seat && !c.done)));
           return (
             <div key={seat} data-seat={seat} className={`badge ${isTurn ? 'turn' : ''} ${role.cls}`} style={pct(posOf(seat))}>
               <span className="b-avatar"><Avatar name={name(seat)} isBot={Boolean(s?.isBot)} size={40} /><span className={`role role-dot ${role.cls}`}>{role.text}</span></span>
@@ -459,6 +483,7 @@ export function Table({ client }: { client: GameClient }) {
                 {shownLeader === seat && <span className="b-lead" title="这一墩是他先出的">首</span>}
                 {s && !s.connected && <span className="b-off">离线</span>}
                 {passed.includes(seat) && <span className="b-pass">不反</span>}
+                {view.guohe?.crossings.some((c) => c.from === seat) && <span className="b-pass">过河</span>}
               </span>
             </div>
           );
@@ -507,6 +532,9 @@ export function Table({ client }: { client: GameClient }) {
           )}
           {chaodiSecs !== null && (
             <div className={`declare-timer ${chaodiSecs <= 5 ? 'urgent' : ''}`}>抄底倒计时 <b>{chaodiSecs}</b> 秒</div>
+          )}
+          {guoheSecs !== null && (
+            <div className={`declare-timer ${guoheSecs <= 5 ? 'urgent' : ''}`}>过河倒计时 <b>{guoheSecs}</b> 秒</div>
           )}
           {myChaodiOpts.length > 0 && (
             <div className="declare-hints">
@@ -573,6 +601,19 @@ export function Table({ client }: { client: GameClient }) {
           )}
           {view.phase === 'chaodi' && view.currentTurn === me && (
             <button className="ghost" onClick={() => send({ t: 'passChaodi' })}>不抄</button>
+          )}
+          {guoheAsked && (
+            <>
+              <button className="ghost" onClick={() => send({ t: 'passGuohe' })}>不过河</button>
+              <button className="primary" disabled={checkGuoheGive(view.hand, selectedCards, view) !== null} onClick={() => { send({ t: 'guohe', cards: selected }); setSelected([]); }}>
+                过河 {selected.length}/{GUOHE_CARDS}
+              </button>
+            </>
+          )}
+          {guoheReturning && (
+            <button className="primary" disabled={checkGuoheReturn(view.hand, selectedCards, view) !== null} onClick={() => { send({ t: 'guoheReturn', cards: selected }); setSelected([]); }}>
+              还牌 {selected.length}/{GUOHE_CARDS}
+            </button>
           )}
           {view.phase === 'bottom' && view.currentTurn === me && (
             <button className="primary" disabled={selected.length !== view.config.bottomSize} onClick={() => { send({ t: 'exchangeBottom', cards: selected }); setSelected([]); }}>

@@ -5,7 +5,7 @@
  * 同一份采样用于全部候选（共同随机数），降低方差。带时间预算。
  */
 import { type Card, type Suit } from './cards.ts';
-import { applyAction, ctxOf, currentTurn } from './reducer.ts';
+import { applyAction, ctxOf, currentTurn, waitingSeats } from './reducer.ts';
 import { createRng, type Rng } from './rng.ts';
 import { candidatePlays, knownVoids, rankedBottomSets, rankedFriendCallSets, smartAction, type PlayCandidate } from './smartbot.ts';
 import type { FriendCallSpec } from './state.ts';
@@ -397,8 +397,8 @@ function playoutFrom(start: GameState, seat: Seat, rng: Rng, startTricks = start
     if (++guard > 500) return null;
     const cut = valueCut(s, seat, startTricks);
     if (cut !== null) return cut;
-    // 扣底、四人抄底、叫朋友、出牌都按轮到谁来
-    const actor = currentTurn(s);
+    // 扣底、四人抄底和过河、叫朋友、出牌都按轮到谁来
+    const actor = waitingSeats(s)[0] ?? null;
     if (actor === null) return null;
     const a = smartAction(s, actor, rng, 2);
     if (!a) return null;

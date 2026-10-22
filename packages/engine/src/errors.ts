@@ -12,6 +12,7 @@ export type RuleErrorCode =
   | 'MIXED_GROUPS'
   | 'MUST_FOLLOW_SUIT'
   | 'MUST_MATCH_STRUCTURE'
+  | 'INVALID_GUOHE'
   | 'INVALID_ACTION';
 
 export interface RuleError {
