@@ -6,8 +6,9 @@ import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { parseClientMessage, type ServerMessage } from '@shengji/protocol';
+import { DdzRoom } from './ddzRoom.ts';
 import { Registry } from './registry.ts';
-import type { RoomOptions } from './room.ts';
+import { Room, type RoomOptions } from './room.ts';
 import { Store } from './store.ts';
 import { closeSearchPool, getSearchPool } from './searchPool.ts';
 
@@ -162,12 +163,25 @@ wss.on('connection', (ws: AliveSocket) => {
       case 'addBot': return r.addBot(token, msg.seat);
       case 'removeBot': return r.removeBot(token, msg.seat);
       case 'start': return r.start(token);
+      case 'watch': return r.watch(token, msg.seat);
+      case 'nextRound': return r.nextRound(token);
+      case 'abortGame': return r.abortGame(token);
+      default: break;
+    }
+    if (r instanceof DdzRoom) {
+      if (seat === null) return send(ws, { t: 'error', code: 'NOT_SEATED', message: '你没有坐下' });
+      switch (msg.t) {
+        case 'bid': return r.act(token, { type: 'bid', seat, points: msg.points });
+        case 'ddzPlay': return r.act(token, { type: 'play', seat, cards: msg.cards });
+        case 'ddzPass': return r.act(token, { type: 'pass', seat });
+        default: return send(ws, { t: 'error', code: 'WRONG_GAME', message: '斗地主房间里不能这样操作' });
+      }
+    }
+    if (!(r instanceof Room)) return;
+    switch (msg.t) {
       case 'setBots': return r.setBots(token, msg.strength);
       case 'setPlayLog': return r.setPlayLog(token, msg.open);
-      case 'watch': return r.watch(token, msg.seat);
-      case 'nextRound': return r.act(token, { type: 'nextRound' });
       case 'restartRound': return r.restartRound(token);
-      case 'abortGame': return r.abortGame(token);
       case 'getReplay': return r.replayFor(token, msg.round);
       default: break;
     }

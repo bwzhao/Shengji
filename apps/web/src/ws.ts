@@ -1,6 +1,6 @@
 /** 与服务端的 WebSocket 连接：自动重连、会话 token 持久化。 */
 import { useEffect, useRef, useState } from 'react';
-import type { GameEvent, PlayerView } from '@shengji/engine';
+import type { DdzEvent, DdzView, GameEvent, PlayerView } from '@shengji/engine';
 import type { ClientMessage, RoomInfo, RoomSummary, RoundReplay, ServerMessage } from '@shengji/protocol';
 import { checkForUpdate } from './pwa.ts';
 import { connectSocket } from './connection.ts';
@@ -17,6 +17,9 @@ export interface GameClient {
   readonly room: RoomInfo | null;
   readonly view: PlayerView | null;
   readonly events: readonly GameEvent[];
+  /** 斗地主房间的牌局和刚发生的事件 */
+  readonly ddzView: DdzView | null;
+  readonly ddzEvents: readonly DdzEvent[];
   /** 亮主思考时间截止的本地时刻（Date.now() 口径），不在倒计时为 null */
   readonly declareDeadline: number | null;
   /** 四人抄底轮到真人时的截止时刻（本地时间） */
@@ -54,6 +57,8 @@ export function useGameClient(): GameClient {
   const [room, setRoom] = useState<RoomInfo | null>(null);
   const [view, setView] = useState<PlayerView | null>(null);
   const [events, setEvents] = useState<readonly GameEvent[]>([]);
+  const [ddzView, setDdzView] = useState<DdzView | null>(null);
+  const [ddzEvents, setDdzEvents] = useState<readonly DdzEvent[]>([]);
   const [declareDeadline, setDeclareDeadline] = useState<number | null>(null);
   const [declarePassed, setDeclarePassed] = useState<readonly number[]>([]);
   const [chaodiDeadline, setChaodiDeadline] = useState<number | null>(null);
@@ -98,7 +103,7 @@ export function useGameClient(): GameClient {
               localStorage.removeItem(PENDING_LEAVE_KEY);
             }
             setRoom(msg.room);
-            if (!msg.room || !msg.room.started) setView(null);
+            if (!msg.room || !msg.room.started) { setView(null); setDdzView(null); }
             break;
           case 'state':
             if (localStorage.getItem(PENDING_LEAVE_KEY)) break;
@@ -109,6 +114,10 @@ export function useGameClient(): GameClient {
             setGuoheDeadline(msg.guoheLeftMs === undefined ? null : Date.now() + msg.guoheLeftMs);
             setZaofanDeadline(msg.zaofanLeftMs === undefined ? null : Date.now() + msg.zaofanLeftMs);
             setZaofanPassed(msg.zaofanPassed ?? []);
+            break;
+          case 'ddzState':
+            if (localStorage.getItem(PENDING_LEAVE_KEY)) break;
+            setDdzView(msg.view); setDdzEvents(msg.events);
             break;
           case 'error': pushToast('error', msg.message); break;
           case 'replay': setReplay(msg.replay); break;
@@ -143,7 +152,7 @@ export function useGameClient(): GameClient {
   };
 
   return {
-    connected, name, room, view, events, declareDeadline, declarePassed, chaodiDeadline, guoheDeadline, zaofanDeadline, zaofanPassed, toasts, replay, rooms, send, setName,
+    connected, name, room, view, events, ddzView, ddzEvents, declareDeadline, declarePassed, chaodiDeadline, guoheDeadline, zaofanDeadline, zaofanPassed, toasts, replay, rooms, send, setName,
     closeReplay: () => setReplay(null),
     dismissToast: (id) => setToasts((t) => t.filter((x) => x.id !== id)),
   };

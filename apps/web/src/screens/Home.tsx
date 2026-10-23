@@ -5,7 +5,7 @@ import { buildTime } from '../pwa.ts';
 export function Home({ client }: { client: GameClient }) {
   const [name, setName] = useState(client.name);
   const [code, setCode] = useState(() => (new URLSearchParams(location.search).get('room') ?? '').toUpperCase().slice(0, 4));
-  const [players, setPlayers] = useState<4 | 5 | 6>(6);
+  const [players, setPlayers] = useState<3 | 4 | 5 | 6>(6);
   const ready = name.trim().length > 0;
 
   // 已登记名字后，每 4 秒刷新一次服务器上的房间
@@ -18,6 +18,7 @@ export function Home({ client }: { client: GameClient }) {
 
   const phaseText = (r: NonNullable<typeof client.rooms>[number]) => {
     if (!r.started) return '等人中';
+    if (r.game === 'doudizhu') return `斗地主第 ${r.round} 局${r.phase === 'bidding' ? ' 叫分' : r.phase === 'roundEnd' ? ' 结算' : ''}`;
     switch (r.phase) {
       case 'dealing': case 'declaring': return `第 ${r.round} 局 发牌`;
       case 'bottom': case 'callFriend': return `第 ${r.round} 局 扣底`;
@@ -35,7 +36,7 @@ export function Home({ client }: { client: GameClient }) {
   return (
     <div className="home">
       <h1>升级<span>·</span>找朋友</h1>
-      <p className="sub">三副牌 · 5 或 6 人 · 找朋友</p>
+      <p className="sub">找朋友 · 四人对家升级 · 三人斗地主</p>
       <label className="field">
         <span>你的名字</span>
         <input value={name} maxLength={12} placeholder="比如 小赵" onChange={(e) => setName(e.target.value)} onBlur={ensureName} />
@@ -43,11 +44,12 @@ export function Home({ client }: { client: GameClient }) {
       <div className="panel">
         <div className="panel-title">开房</div>
         <div className="seg">
+          <button className={players === 3 ? 'on' : ''} onClick={() => setPlayers(3)}>3 人 · 斗地主</button>
           <button className={players === 4 ? 'on' : ''} onClick={() => setPlayers(4)}>4 人 · 对家</button>
           <button className={players === 5 ? 'on' : ''} onClick={() => setPlayers(5)}>5 人 · 1 个朋友</button>
           <button className={players === 6 ? 'on' : ''} onClick={() => setPlayers(6)}>6 人 · 2 个朋友</button>
         </div>
-        <div className="hint">{players === 4 ? '两副牌，每人 25 张，底牌 8 张，40 分一级、80 分下庄，对家固定一队。从 2 打到 A，5、10、K 必打且庄上过（停在这几级时要坐庄守住才能往上升），在 A 上坐庄守住才赢。' : '三副牌，找朋友：庄家扣底后叫朋友牌，谁打出谁就是自己人。'}</div>
+        <div className="hint">{players === 3 ? '一副牌，每人 17 张，留 3 张底牌。叫 1、2、3 分抢地主，地主拿底牌先出，两个农民一伙。炸弹、王炸、春天翻倍，一直打，累计积分。' : players === 4 ? '两副牌，每人 25 张，底牌 8 张，40 分一级、80 分下庄，对家固定一队。从 2 打到 A，5、10、K 必打且庄上过（停在这几级时要坐庄守住才能往上升），在 A 上坐庄守住才赢。' : '三副牌，找朋友：庄家扣底后叫朋友牌，谁打出谁就是自己人。'}</div>
         <button className="primary" disabled={!ready} onClick={() => { ensureName(); setTimeout(() => client.send({ t: 'createRoom', players }), 50); }}>
           创建房间
         </button>

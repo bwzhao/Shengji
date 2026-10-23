@@ -1,16 +1,21 @@
 /** 房间快照落盘：进程重启后恢复正在进行的牌局。 */
 import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import type { GameState } from '@shengji/engine';
-import type { RoundReplay } from '@shengji/protocol';
+import type { DdzState, GameState } from '@shengji/engine';
+import type { GameKind, RoundReplay } from '@shengji/protocol';
 
 export interface RoomSnapshot {
   readonly code: string;
-  readonly players: 4 | 5 | 6;
+  /** 旧存档里没有，都是升级 */
+  readonly game?: GameKind;
+  readonly players: 3 | 4 | 5 | 6;
   readonly hostToken: string;
   readonly seats: readonly ({ token: string; isBot: boolean; name?: string } | null)[];
   readonly members: readonly { token: string; name: string }[];
+  /** 升级的牌局 */
   readonly state: GameState | null;
+  /** 斗地主的牌局 */
+  readonly ddz?: DdzState | null;
   readonly seq: number;
   readonly lastActivity: number;
   readonly roundLogs?: readonly RoundReplay[];

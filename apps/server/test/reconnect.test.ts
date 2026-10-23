@@ -2,6 +2,7 @@ import { afterEach, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import type { ServerMessage } from '@shengji/protocol';
 import { createGame, defaultConfig } from '@shengji/engine';
+import type { Room } from '../src/room.ts';
 import { startServer, type RunningServer } from '../src/server.ts';
 
 let server: RunningServer | undefined;
@@ -31,7 +32,7 @@ it.each([false, true])('late old-socket close preserves replacement connection (
   if (welcome.t !== 'welcome') throw new Error('missing welcome');
   old.send({ t: 'createRoom', players: 4 });
   await expect.poll(() => server!.registry.rooms.size).toBe(1);
-  const room = [...server.registry.rooms.values()][0]!;
+  const room = [...server.registry.rooms.values()][0] as Room;
   if (started) room.state = createGame(defaultConfig(4), 'reconnect');
   const fresh = await connect();
   fresh.send({ t: 'hello', name: 'reconnecting', token: welcome.token });
@@ -85,7 +86,7 @@ it('two of four players reconnect while all four keep receiving live deals', asy
   }
   original[0]!.send({ t: 'createRoom', players: 4 });
   await expect.poll(() => server!.registry.rooms.size).toBe(1);
-  const room = [...server.registry.rooms.values()][0]!;
+  const room = [...server.registry.rooms.values()][0] as Room;
   for (let seat = 1; seat < 4; seat++) {
     original[seat]!.send({ t: 'joinRoom', code: room.code });
     original[seat]!.send({ t: 'sit', seat });

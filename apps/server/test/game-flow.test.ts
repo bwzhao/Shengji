@@ -5,6 +5,7 @@ import {
   RANKS, SUITS, applyAction, createRng, decompose, generateFollow, groupOf, type Card, type PlayerView,
 } from '@shengji/engine';
 import type { ClientMessage, ServerMessage } from '@shengji/protocol';
+import type { Room } from '../src/room.ts';
 import { startServer, type RunningServer } from '../src/server.ts';
 
 let server: RunningServer;
@@ -250,7 +251,7 @@ it('没有真人在线时机器人暂停，真人回来后继续', async () => {
   for (let i = 0; i < 5; i++) st = await c.until(isState);
   c.ws.close();
   await new Promise((r) => setTimeout(r, 150));
-  const room = server.registry.rooms.get(code)!;
+  const room = server.registry.rooms.get(code) as Room;
   const dealtAtClose = room.state!.hands.reduce((a, h) => a + h.length, 0);
   await new Promise((r) => setTimeout(r, 200)); // 发牌间隔 2ms，若未暂停会多发上百张
   const dealtLater = room.state!.hands.reduce((a, h) => a + h.length, 0);
@@ -424,4 +425,42 @@ it('开局后没有机器人座位可接管时，输入房间号进来就是观�
   expect(r.room?.you).toBeNull();
   expect(r.room?.spectators).toContain('迟到');
   for (const c of [host, late, ...others]) c.ws.close();
+}, 30_000);
+
+it('斗地主：开三人房，和两个机器人通过 WebSocket 打完一局（三人斗地主）', async () => {
+  const { ddzBidPoints, ddzChoosePlay, ddzContextOfView } = await import('@shengji/engine');
+  const c = new Client(server.port);
+  await c.open();
+  c.send({ t: 'hello', name: '地主' });
+  await c.next();
+  await c.next();
+  c.send({ t: 'createRoom', players: 3 });
+  const created = await c.until(isRoom);
+  expect(created.room).toMatchObject({ game: 'doudizhu', players: 3 });
+  c.send({ t: 'addBot', seat: 1 });
+  c.send({ t: 'addBot', seat: 2 });
+  await c.until((m): m is Extract<ServerMessage, { t: 'room' }> => isRoom(m) && m.room?.seats.every(Boolean) === true);
+  c.send({ t: 'start' });
+  const isDdz = (m: ServerMessage): m is Extract<ServerMessage, { t: 'ddzState' }> => m.t === 'ddzState';
+  let lastSeq = -1;
+  for (let i = 0; i < 400; i++) {
+    const st = await c.until(isDdz);
+    const v = st.view;
+    if (v.phase === 'roundEnd') {
+      expect(v.lastRound?.deltas.reduce((a, b) => a + b, 0)).toBe(0);
+      expect(v.scores.reduce((a, b) => a + b, 0)).toBe(0);
+      c.ws.close();
+      return;
+    }
+    if (st.seq <= lastSeq || v.turn !== v.seat) continue;
+    lastSeq = st.seq;
+    if (v.phase === 'bidding') c.send({ t: 'bid', points: ddzBidPoints(v.hand, v.bid) });
+    else {
+      const choice = ddzChoosePlay(ddzContextOfView(v));
+      // 管不住时服务端会自动「要不起」，这里不用操作
+      if (choice) c.send({ t: 'ddzPlay', cards: choice.cards.map((x) => x.id) });
+      else if (v.lastPlay && v.lastPlay.seat !== v.seat && v.hand.length > 0) c.send({ t: 'ddzPass' });
+    }
+  }
+  throw new Error('一局没打完');
 }, 30_000);

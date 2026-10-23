@@ -6,14 +6,14 @@ export function Lobby({ client }: { client: GameClient }) {
   const full = room.seats.every((s) => s);
   const shareUrl = `${location.origin}/?room=${room.code}`;
   const copy = async () => {
-    try { await navigator.clipboard.writeText(`来打找朋友：${shareUrl} 房间码 ${room.code}`); } catch { /* 忽略 */ }
+    try { await navigator.clipboard.writeText(`来打${room.game === 'doudizhu' ? '斗地主' : '找朋友'}：${shareUrl} 房间码 ${room.code}`); } catch { /* 忽略 */ }
   };
   return (
     <div className="lobby">
       <div className="code-card">
         <div className="label">房间码</div>
         <div className="big-code">{room.code}</div>
-        <div className="hint">{room.players} 人局 · 按座位号逆时针出牌 · 把房间码发给朋友</div>
+        <div className="hint">{room.game === 'doudizhu' ? '三人斗地主' : `${room.players} 人局`} · 按座位号逆时针出牌 · 把房间码发给朋友</div>
         <button className="ghost" onClick={copy}>复制邀请</button>
       </div>
       <div className="seats">
@@ -36,22 +36,26 @@ export function Lobby({ client }: { client: GameClient }) {
           </div>
         ))}
       </div>
-      <div className="panel bots-panel">
-        <div className="panel-title">机器人</div>
-        <div className="seg">
-          <button className={room.botStrength === 'normal' ? 'on' : ''} disabled={!room.youAreHost} onClick={() => client.send({ t: 'setBots', strength: 'normal' })}>普通 · 反应快</button>
-          <button className={room.botStrength === 'strong' ? 'on' : ''} disabled={!room.youAreHost} onClick={() => client.send({ t: 'setBots', strength: 'strong' })}>加强 · 会算牌</button>
+      {room.game !== 'doudizhu' && (
+        <>
+        <div className="panel bots-panel">
+          <div className="panel-title">机器人</div>
+          <div className="seg">
+            <button className={room.botStrength === 'normal' ? 'on' : ''} disabled={!room.youAreHost} onClick={() => client.send({ t: 'setBots', strength: 'normal' })}>普通 · 反应快</button>
+            <button className={room.botStrength === 'strong' ? 'on' : ''} disabled={!room.youAreHost} onClick={() => client.send({ t: 'setBots', strength: 'strong' })}>加强 · 会算牌</button>
+          </div>
+          <div className="hint">{room.botStrength === 'strong' ? '加强版每手会推演几十种可能的牌局再出牌，多等约一秒。' : '普通版按牌桌常识出牌，几乎不用等。'}{!room.youAreHost && ' 只有房主能改。'} 机器人以电影明星命名，头像取自维基百科的自由授权照片。</div>
         </div>
-        <div className="hint">{room.botStrength === 'strong' ? '加强版每手会推演几十种可能的牌局再出牌，多等约一秒。' : '普通版按牌桌常识出牌，几乎不用等。'}{!room.youAreHost && ' 只有房主能改。'} 机器人以电影明星命名，头像取自维基百科的自由授权照片。</div>
-      </div>
-      <div className="panel bots-panel">
-        <div className="panel-title">出牌记录</div>
-        <div className="seg">
-          <button className={room.playLogOpen ? '' : 'on'} disabled={!room.youAreHost} onClick={() => client.send({ t: 'setPlayLog', open: false })}>只看自己的</button>
-          <button className={room.playLogOpen ? 'on' : ''} disabled={!room.youAreHost} onClick={() => client.send({ t: 'setPlayLog', open: true })}>可看所有人的</button>
+        <div className="panel bots-panel">
+          <div className="panel-title">出牌记录</div>
+          <div className="seg">
+            <button className={room.playLogOpen ? '' : 'on'} disabled={!room.youAreHost} onClick={() => client.send({ t: 'setPlayLog', open: false })}>只看自己的</button>
+            <button className={room.playLogOpen ? 'on' : ''} disabled={!room.youAreHost} onClick={() => client.send({ t: 'setPlayLog', open: true })}>可看所有人的</button>
+          </div>
+          <div className="hint">{room.playLogOpen ? '牌局中可以翻看每一墩所有人出的牌。' : '牌局中只能翻看自己出过的牌，别人出的要靠记；「上一轮」照常能看。'}{!room.youAreHost && ' 只有房主能改。'}</div>
         </div>
-        <div className="hint">{room.playLogOpen ? '牌局中可以翻看每一墩所有人出的牌。' : '牌局中只能翻看自己出过的牌，别人出的要靠记；「上一轮」照常能看。'}{!room.youAreHost && ' 只有房主能改。'}</div>
-      </div>
+        </>
+      )}
       <div className="lobby-actions">
         {room.youAreHost ? (
           <button className="primary" disabled={!full} onClick={() => client.send({ t: 'start' })}>

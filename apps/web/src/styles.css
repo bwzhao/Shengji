@@ -375,3 +375,17 @@ b { font-weight: 700; }
   .rotate-icon { font-size: 56px; color: var(--gold); animation: spin-hint 2.4s ease-in-out infinite; }
 }
 @keyframes spin-hint { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-90deg); } }
+
+/* ---------- 三人斗地主 ---------- */
+.ddz-bottom { position: absolute; transform: translate(-50%, -50%); z-index: 2; }
+.ddz-backs { display: flex; gap: 4px; }
+.ddz-backs span { width: 28px; height: 40px; border-radius: 5px; border: 1.5px solid rgba(255,255,255,.55);
+  background: repeating-linear-gradient(45deg, #2b5d8c, #2b5d8c 4px, #23496d 4px, #23496d 8px); }
+.ddz-act { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 2px; z-index: 2; max-width: 44%; }
+.ddz-act .card-row { flex-wrap: nowrap; }
+.ddz-act.text { font-size: 15px; color: var(--ink-2); background: rgba(0,0,0,.3); padding: 4px 12px; border-radius: 8px; }
+.ddz-combo { font-size: 11px; color: var(--muted); }
+.ddz-left { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+.ddz-left > span { min-width: 4em; font-size: 13px; color: var(--ink-2); }
+/* 靠边的座位不要被挤窄折行 */
+.ddz .badge { width: max-content; }

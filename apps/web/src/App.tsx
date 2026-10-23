@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Home } from './screens/Home.tsx';
 import { Lobby } from './screens/Lobby.tsx';
 import { Replay } from './screens/Replay.tsx';
+import { DdzTable } from './screens/DdzTable.tsx';
 import { Table } from './screens/Table.tsx';
 import { sound } from './sound.ts';
 import { useGameClient } from './ws.ts';
@@ -23,6 +24,7 @@ export function App() {
 
   let screen;
   if (!client.name || !client.room) screen = <Home client={client} />;
+  else if (client.room.game === 'doudizhu') screen = client.room.started && client.ddzView ? <DdzTable client={client} /> : <Lobby client={client} />;
   else if (!client.room.started || !client.view) screen = <Lobby client={client} />;
   else screen = <Table client={client} />;
   return (

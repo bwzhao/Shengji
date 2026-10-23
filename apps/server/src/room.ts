@@ -1,28 +1,14 @@
-/** 一个房间：大厅座位管理 + 驾驭引擎状态机 + 机器人 + 广播。 */
+/** 升级·找朋友的房间：驾驭引擎状态机 + 机器人 + 广播；大厅座位管理在 BaseRoom。 */
 import {
-  applyAction, createGame, createRng, currentTurn, defaultConfig, waitingSeats, LEVEL_SEQUENCE, restartRound, smartAction, smartDeclare, spectatorView, tuneForMode, viewFor,
-  type Action, type GameConfig, type GameEvent, type GameState, type PlayerView, type Rng, type Seat,
+  applyAction, createGame, currentTurn, defaultConfig, waitingSeats, LEVEL_SEQUENCE, restartRound, smartAction, smartDeclare, spectatorView, tuneForMode, viewFor,
+  type Action, type GameConfig, type GameEvent, type GameState, type PlayerView, type Seat,
 } from '@shengji/engine';
-import type { RoomInfo, RoomSummary, RoundReplay, ServerMessage } from '@shengji/protocol';
-import type { WebSocket } from 'ws';
+import type { RoomInfo, RoomSummary, RoundReplay } from '@shengji/protocol';
+import { BaseRoom } from './baseRoom.ts';
 import type { RoomSnapshot } from './store.ts';
 import { getSearchPool } from './searchPool.ts';
-import { pickStarName } from './stars.ts';
 
-export interface Member {
-  readonly token: string;
-  name: string;
-  socket: WebSocket | null;
-  /** 没坐下的人（观看者）正在看哪个座位的手牌；不设时看房主的座位 */
-  watching?: Seat;
-}
-
-interface SeatSlot {
-  readonly token: string;
-  readonly isBot: boolean;
-  /** 机器人的明星名字 */
-  readonly name?: string;
-}
+export type { Member } from './baseRoom.ts';
 
 export interface RoomOptions {
   readonly dealIntervalMs: number;
@@ -37,21 +23,18 @@ export interface RoomOptions {
   /** 造反：机器人坐庄时等这么久再埋底，给真人时间造反；真人都点了「不造反」就不等。不设是 10 秒 */
   readonly zaofanWaitMs?: number;
   readonly botDelayMs: number;
+  /** 斗地主：真人管不住上家时，等这么久自动「要不起」。不设是 1 秒 */
+  readonly ddzAutoPassMs?: number;
   /** 搜索机器人每手的时间预算 */
   readonly searchBudgetMs: number;
 }
 
 export const defaultRoomOptions: RoomOptions = { dealIntervalMs: 150, grabDealIntervalMs: 200, declareGraceMs: 30_000, botDelayMs: 900, searchBudgetMs: 1100 };
 
-export class Room {
-  readonly code: string;
+export class Room extends BaseRoom {
+  readonly game = 'shengji' as const;
   readonly config: GameConfig;
-  readonly members = new Map<string, Member>();
-  readonly seats: (SeatSlot | null)[];
-  hostToken: string;
   state: GameState | null = null;
-  seq = 0;
-  lastActivity = Date.now();
   /** 最近几局的操作日志，用于回放 */
   roundLogs: RoundReplay[] = [];
   botStrength: 'normal' | 'strong' = 'strong';
@@ -59,7 +42,6 @@ export class Room {
   playLogOpen = false;
   /** 正在进行的异步搜索的序号，用来丢弃过期结果 */
   private searchEpoch = 0;
-  private readonly rng: Rng;
   private dealTimer: NodeJS.Timeout | null = null;
   private graceTimer: NodeJS.Timeout | null = null;
   /** 亮主思考时间的截止时刻；不在 declaring 阶段、或因为没有真人在线暂停时为 null */
@@ -82,16 +64,36 @@ export class Room {
   /** 真人只剩唯一合法出法时自动代出 */
   private autoTimer: NodeJS.Timeout | null = null;
   private readonly opts: RoomOptions;
-  /** 任何需要落盘的变化后调用 */
-  onChange: () => void = () => {};
 
   constructor(code: string, players: 4 | 5 | 6, hostToken: string, opts: RoomOptions = defaultRoomOptions) {
-    this.code = code;
+    super(code, players, hostToken);
     this.config = defaultConfig(players);
-    this.hostToken = hostToken;
-    this.seats = Array.from({ length: players }, () => null);
-    this.rng = createRng(`bots/${code}/${Date.now()}`);
     this.opts = opts;
+  }
+
+  protected gameInfo(): Pick<RoomInfo, 'botStrength' | 'playLogOpen'> {
+    return { botStrength: this.botStrength, playLogOpen: this.playLogOpen };
+  }
+
+  protected gameSummary(): Pick<RoomSummary, 'round' | 'phase'> {
+    return { round: this.state?.round ?? 0, phase: this.state?.phase ?? null };
+  }
+
+  protected seatsChanged(): void {
+    if (this.botTimer) { clearTimeout(this.botTimer); this.botTimer = null; }
+    this.afterChange([]);
+  }
+
+  protected humanBack(): void {
+    this.armTimers();
+  }
+
+  protected clearGame(): void {
+    this.state = null;
+  }
+
+  nextRound(token: string): void {
+    this.act(token, { type: 'nextRound' });
   }
 
   toSnapshot(): RoomSnapshot {
@@ -111,7 +113,7 @@ export class Room {
   }
 
   static fromSnapshot(snap: RoomSnapshot, opts: RoomOptions): Room {
-    const room = new Room(snap.code, snap.players, snap.hostToken, opts);
+    const room = new Room(snap.code, snap.players as 4 | 5 | 6, snap.hostToken, opts);
     snap.seats.forEach((s, i) => { room.seats[i] = s ? { token: s.token, isBot: s.isBot, name: s.name } : null; });
     for (const m of snap.members) room.members.set(m.token, { token: m.token, name: m.name, socket: null });
     room.state = snap.state ? migrateDealerRule(migrateLadder(snap.state)) : snap.state;
@@ -132,65 +134,6 @@ export class Room {
     return this.state !== null;
   }
 
-  /** 新建一个机器人座位，名字从明星表里挑一个本房间没用过的 */
-  private makeBot(seat: Seat): SeatSlot {
-    const used = new Set<string>();
-    for (const s of this.seats) if (s?.isBot && s.name) used.add(s.name);
-    return { token: `bot:${seat}`, isBot: true, name: pickStarName(used, () => this.rng.next(), `机器人${seat + 1}`) };
-  }
-
-  /** 有没有真人在线：没有的话机器人暂停，不再空转 */
-  humansOnline(): boolean {
-    return this.onlineHumanSeats().length > 0;
-  }
-
-  private onlineHumanSeats(): Seat[] {
-    const seats: Seat[] = [];
-    for (const [i, slot] of this.seats.entries()) {
-      if (!slot || slot.isBot) continue;
-      const m = this.members.get(slot.token);
-      if (m?.socket && m.socket.readyState === m.socket.OPEN) seats.push(i);
-    }
-    return seats;
-  }
-
-  seatOf(token: string): Seat | null {
-    const i = this.seats.findIndex((s) => s?.token === token);
-    return i >= 0 ? i : null;
-  }
-
-  private send(m: Member | undefined, msg: ServerMessage): void {
-    if (m?.socket && m.socket.readyState === m.socket.OPEN) m.socket.send(JSON.stringify(msg));
-  }
-
-  private error(token: string, code: string, message: string): void {
-    this.send(this.members.get(token), { t: 'error', code, message });
-  }
-
-  info(forToken: string): RoomInfo {
-    return {
-      code: this.code,
-      players: this.config.players,
-      seats: this.seats.map((s, seat) => {
-        if (!s) return null;
-        const m = this.members.get(s.token);
-        return {
-          seat,
-          name: s.isBot ? (s.name ?? `机器人${seat + 1}`) : (m?.name ?? '?'),
-          connected: s.isBot || Boolean(m?.socket && m.socket.readyState === m.socket.OPEN),
-          isBot: s.isBot,
-          isHost: s.token === this.hostToken,
-        };
-      }),
-      started: this.started,
-      botStrength: this.botStrength,
-      playLogOpen: this.playLogOpen,
-      spectators: this.spectators().map((m) => m.name),
-      you: this.seatOf(forToken),
-      youAreHost: forToken === this.hostToken,
-    };
-  }
-
   setBots(token: string, strength: 'normal' | 'strong'): void {
     if (token !== this.hostToken) return this.error(token, 'NOT_HOST', '只有房主能设置机器人');
     this.botStrength = strength;
@@ -203,57 +146,6 @@ export class Room {
     this.broadcastRoom();
     // 开局后改的话，大家手里的出牌记录跟着变
     this.broadcastState([]);
-    this.onChange();
-  }
-
-  /** 只有房主能关；没人在线的房间空闲两小时后由 registry.gc 回收，不用别人代关 */
-  canClose(token: string): boolean {
-    return token === this.hostToken;
-  }
-
-  /** 关闭房间：通知所有成员回首页，清掉定时器 */
-  close(reason: string): void {
-    this.dispose();
-    for (const m of this.members.values()) {
-      this.send(m, { t: 'error', code: 'ROOM_CLOSED', message: reason });
-      this.send(m, { t: 'room', room: null });
-    }
-    this.members.clear();
-    this.state = null;
-  }
-
-  summary(forToken: string): RoomSummary {
-    let humans = 0, online = 0, bots = 0;
-    const names: string[] = [];
-    for (const [i, slot] of this.seats.entries()) {
-      if (!slot) continue;
-      if (slot.isBot) { bots++; continue; }
-      humans++;
-      const m = this.members.get(slot.token);
-      if (m?.socket && m.socket.readyState === m.socket.OPEN) online++;
-      names.push(this.nameOfSeat(i, slot));
-    }
-    const hostSeat = this.seatOf(this.hostToken);
-    return {
-      code: this.code,
-      players: this.config.players,
-      started: this.started,
-      round: this.state?.round ?? 0,
-      phase: this.state?.phase ?? null,
-      humans,
-      humansOnline: online,
-      bots,
-      names,
-      hostName: hostSeat !== null ? this.nameOfSeat(hostSeat, this.seats[hostSeat] ?? null) : (this.members.get(this.hostToken)?.name ?? '?'),
-      joinable: this.seats.some((s) => !s || s.isBot),
-      spectators: this.started ? this.spectators().length : 0,
-      canClose: this.canClose(forToken),
-      lastActivity: this.lastActivity,
-    };
-  }
-
-  broadcastRoom(): void {
-    for (const m of this.members.values()) this.send(m, { t: 'room', room: this.info(m.token) });
     this.onChange();
   }
 
@@ -278,25 +170,6 @@ export class Room {
     for (const m of this.spectators()) {
       this.send(m, { t: 'state', seq: this.seq, view: this.viewOf(this.watchedSeat(m), true), events, ...this.declareTimer(), ...this.chaodiTimerInfo(), ...this.guoheTimerInfo(), ...this.zaofanInfo() });
     }
-  }
-
-  /** 在线、没坐下的人；开局后就是观看者 */
-  private spectators(): Member[] {
-    return [...this.members.values()].filter((m) => m.socket && m.socket.readyState === m.socket.OPEN && this.seatOf(m.token) === null);
-  }
-
-  /** 观看者正在看的座位：自己选的，没选就看房主，房主不在座位上就看 0 号位 */
-  private watchedSeat(m: Member): Seat {
-    return m.watching ?? this.seatOf(this.hostToken) ?? 0;
-  }
-
-  /** 观看者换着看某个座位的手牌 */
-  watch(token: string, seat: Seat): void {
-    const m = this.members.get(token);
-    if (!m || this.seatOf(token) !== null) return this.error(token, 'NOT_SPECTATOR', '你在座位上，不能换着看别人的牌');
-    if (seat < 0 || seat >= this.config.players) return this.error(token, 'BAD_SEAT', '没有这个座位');
-    m.watching = seat;
-    this.sync(token);
   }
 
   /** 亮主还剩多少毫秒、谁点了不反，随 state 消息下发；发剩余时间而不是截止时刻，客户端时钟不准也没关系 */
@@ -375,109 +248,8 @@ export class Room {
     }
   }
 
-  // ---------- 大厅 ----------
-
-  join(token: string, name: string, socket: WebSocket | null): void {
-    const existing = this.members.get(token);
-    if (existing) {
-      existing.socket = socket;
-      existing.name = name;
-    } else {
-      this.members.set(token, { token, name, socket });
-    }
-    this.lastActivity = Date.now();
-    // 真人回来了：如果牌局因为没人在线而暂停，重新挂上定时器（不广播，状态由 sync 补发）
-    if (socket && this.state && this.seatOf(token) !== null) this.armTimers();
-  }
-
-  detach(token: string, socket: WebSocket): void {
-    const m = this.members.get(token);
-    // A previous connection may close after hello has already attached its replacement.
-    if (!m || m.socket !== socket) return;
-    m.socket = null;
-    if (!this.started && this.seatOf(token) !== null) {
-      // 游戏未开始时掉线直接让座
-      const seat = this.seatOf(token) as Seat;
-      this.seats[seat] = null;
-    }
-    this.broadcastRoom();
-  }
-
-  leave(token: string): void {
-    const seat = this.seatOf(token);
-    if (this.started && seat !== null) {
-      // 游戏中离开：座位交给机器人接管；房主离开则把房主交给下一位真人
-      this.seats[seat] = this.makeBot(seat);
-      this.members.delete(token);
-      if (token === this.hostToken) {
-        const next = this.seats.find((s) => s && !s.isBot);
-        if (next) this.hostToken = next.token;
-      }
-      this.broadcastRoom();
-      this.afterChange([]);
-      return;
-    }
-    if (seat !== null) this.seats[seat] = null;
-    this.members.delete(token);
-    if (token === this.hostToken) {
-      const next = this.seats.find((s) => s && !s.isBot);
-      if (next) this.hostToken = next.token;
-      else {
-        const first = this.members.keys().next();
-        if (!first.done) this.hostToken = first.value;
-      }
-    }
-    this.broadcastRoom();
-  }
-
-  /** 开局后进来的人接管一个机器人座位；没有机器人座位返回 false */
-  takeoverBot(token: string): boolean {
-    const i = this.seats.findIndex((s) => s?.isBot);
-    if (i < 0) return false;
-    this.seats[i] = { token, isBot: false };
-    if (this.botTimer) { clearTimeout(this.botTimer); this.botTimer = null; }
-    this.broadcastRoom();
-    this.afterChange([]);
-    return true;
-  }
-
-  sit(token: string, seat: Seat): void {
-    if (this.started) return this.error(token, 'STARTED', '游戏已经开始');
-    if (seat < 0 || seat >= this.seats.length) return this.error(token, 'BAD_SEAT', '座位不存在');
-    if (this.seats[seat]) return this.error(token, 'SEAT_TAKEN', '这个座位已经有人');
-    const cur = this.seatOf(token);
-    if (cur !== null) this.seats[cur] = null;
-    this.seats[seat] = { token, isBot: false };
-    this.broadcastRoom();
-  }
-
-  stand(token: string): void {
-    if (this.started) return this.error(token, 'STARTED', '游戏已经开始');
-    const cur = this.seatOf(token);
-    if (cur !== null) this.seats[cur] = null;
-    this.broadcastRoom();
-  }
-
-  addBot(token: string, seat: Seat): void {
-    if (token !== this.hostToken) return this.error(token, 'NOT_HOST', '只有房主能添加机器人');
-    if (this.started) return this.error(token, 'STARTED', '游戏已经开始');
-    if (this.seats[seat]) return this.error(token, 'SEAT_TAKEN', '这个座位已经有人');
-    this.seats[seat] = this.makeBot(seat);
-    this.broadcastRoom();
-  }
-
-  removeBot(token: string, seat: Seat): void {
-    if (token !== this.hostToken) return this.error(token, 'NOT_HOST', '只有房主能移除机器人');
-    if (this.started) return this.error(token, 'STARTED', '游戏已经开始');
-    if (!this.seats[seat]?.isBot) return this.error(token, 'NOT_BOT', '这个座位不是机器人');
-    this.seats[seat] = null;
-    this.broadcastRoom();
-  }
-
   start(token: string): void {
-    if (token !== this.hostToken) return this.error(token, 'NOT_HOST', '只有房主能开始');
-    if (this.started) return this.error(token, 'STARTED', '游戏已经开始');
-    if (this.seats.some((s) => !s)) return this.error(token, 'NOT_FULL', '人还没坐满');
+    if (!this.canStart(token)) return;
     const hostSeat = this.seatOf(token) ?? 0;
     this.state = createGame(this.config, `${this.code}/${Date.now()}`, { firstDealSeat: hostSeat });
     this.beginRoundLog(this.state);
@@ -527,12 +299,6 @@ export class Room {
   private beginRoundLog(initial: GameState): void {
     this.roundLogs.push({ round: initial.round, initial, actions: [], names: this.seats.map((s, i) => this.nameOfSeat(i, s)) });
     if (this.roundLogs.length > 6) this.roundLogs.shift();
-  }
-
-  private nameOfSeat(seat: Seat, slot: SeatSlot | null): string {
-    if (!slot) return `${seat + 1} 号`;
-    if (slot.isBot) return slot.name ?? `机器人${seat + 1}`;
-    return this.members.get(slot.token)?.name ?? `${seat + 1} 号`;
   }
 
   /** 记录一次成功的操作；进入新一局或重发时另起一份日志 */

@@ -1,5 +1,7 @@
 /** 房间与会话登记。 */
 import { randomBytes } from 'node:crypto';
+import type { BaseRoom } from './baseRoom.ts';
+import { DdzRoom } from './ddzRoom.ts';
 import { Room, defaultRoomOptions, type RoomOptions } from './room.ts';
 import type { Snapshot, Store } from './store.ts';
 
@@ -13,7 +15,7 @@ export interface Session {
 }
 
 export class Registry {
-  readonly rooms = new Map<string, Room>();
+  readonly rooms = new Map<string, BaseRoom>();
   readonly sessions = new Map<string, Session>();
   private readonly roomOptions: RoomOptions;
   private readonly store: Store | null;
@@ -29,7 +31,7 @@ export class Registry {
     if (!snap) return 0;
     for (const s of snap.sessions) this.sessions.set(s.token, { ...s });
     for (const r of snap.rooms) {
-      const room = Room.fromSnapshot(r, this.roomOptions);
+      const room = r.game === 'doudizhu' ? DdzRoom.fromSnapshot(r, this.roomOptions) : Room.fromSnapshot(r, this.roomOptions);
       this.attach(room);
       this.rooms.set(room.code, room);
     }
@@ -37,7 +39,7 @@ export class Registry {
     return this.rooms.size;
   }
 
-  private attach(room: Room): void {
+  private attach(room: BaseRoom): void {
     room.onChange = () => this.scheduleSave();
   }
 
@@ -72,8 +74,9 @@ export class Registry {
     }
   }
 
-  createRoom(hostToken: string, players: 4 | 5 | 6): Room {
-    const room = new Room(this.newCode(), players, hostToken, this.roomOptions);
+  /** 3 人开斗地主，4~6 人开升级 */
+  createRoom(hostToken: string, players: 3 | 4 | 5 | 6): BaseRoom {
+    const room = players === 3 ? new DdzRoom(this.newCode(), hostToken, this.roomOptions) : new Room(this.newCode(), players, hostToken, this.roomOptions);
     this.attach(room);
     this.rooms.set(room.code, room);
     this.scheduleSave();
