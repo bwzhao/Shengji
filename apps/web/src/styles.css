@@ -28,13 +28,16 @@ b { font-weight: 700; }
 .tag { font-size: 11px; background: var(--line); border-radius: 4px; padding: 1px 6px; margin-left: 6px; color: var(--ink-2); }
 
 /* 页面底纹：暗角 + 细微纹理 */
-.home, .lobby { min-height: 100%; background: radial-gradient(ellipse at 50% 20%, var(--felt-3) 0%, var(--felt) 55%, var(--felt-dark) 100%); }
+/* 首页和房间页的背景铺满整个窗口，内容在中间 */
+.page-bg { min-height: 100%; background: radial-gradient(ellipse at 50% 20%, var(--felt-3) 0%, var(--felt) 55%, var(--felt-dark) 100%); }
+.home, .lobby { min-height: 100%; }
 
 /* 首页 */
 .home { max-width: 440px; margin: 0 auto; padding: 56px 22px 40px; display: flex; flex-direction: column; gap: 18px; }
 .home h1 { font-size: 44px; margin: 0; letter-spacing: .06em; font-weight: 800; text-shadow: 0 2px 0 rgba(0,0,0,.35); }
 .home h1 span { color: var(--gold); }
-.home .sub { margin: -12px 0 6px; color: var(--ink-2); letter-spacing: .1em; }
+.home .sub { margin: 6px 0 6px; color: var(--ink-2); letter-spacing: .1em; }
+.home-main, .home-side { display: flex; flex-direction: column; gap: 18px; }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field span { font-size: 13px; color: var(--ink-2); }
 .field input, .code { background: rgba(0,0,0,.22); border: 1px solid var(--line); color: var(--ink); border-radius: 12px; padding: 12px 14px; font-size: 16px; outline: none; }
@@ -45,6 +48,16 @@ b { font-weight: 700; }
 .seg button { flex: 1; background: transparent; color: var(--ink-2); border: 1px solid var(--line); border-radius: 12px; padding: 10px 6px; white-space: nowrap; font-size: 14px; }
 .seg button.on { border-color: var(--gold); color: var(--ink); background: rgba(224,176,82,.14); }
 .row { display: flex; gap: 8px; }
+/* 房间码输入框可以缩，「进入」按钮不折行 */
+.row > .code { flex: 1 1 auto; min-width: 0; width: 0; }
+.row > button { flex: 0 0 auto; white-space: nowrap; padding-left: 22px; padding-right: 22px; }
+/* 开房选玩法：人数一行、玩法一行，四个并排 */
+.modes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.modes button { display: flex; flex-direction: column; align-items: center; gap: 2px; background: transparent; color: var(--ink-2); border: 1px solid var(--line); border-radius: 12px; padding: 10px 2px; }
+.modes button b { font-size: 17px; color: var(--ink); }
+.modes button span { font-size: 12px; white-space: nowrap; }
+.modes button.on { border-color: var(--gold); color: var(--ink); background: rgba(224,176,82,.14); }
+@media (max-width: 359px) { .modes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .code { flex: 1; text-transform: uppercase; letter-spacing: .3em; font-weight: 700; text-align: center; }
 
 .room-row { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 4px 14px; padding: 10px 0; border-top: 1px solid var(--line); }
@@ -65,13 +78,32 @@ b { font-weight: 700; }
 .big-code { font-size: 52px; font-weight: 800; letter-spacing: .3em; color: var(--gold); text-shadow: 0 2px 0 rgba(0,0,0,.35); }
 .seats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .seat { background: rgba(0,0,0,.18); border: 1px solid var(--line); border-radius: 14px; padding: 12px; min-height: 100px; display: flex; flex-direction: column; gap: 6px; }
-.seat.me { border-color: var(--gold); }
+.seat.mine { border-color: var(--gold); }
 .seat.empty { border-style: dashed; }
 .seat-no { font-size: 12px; color: var(--muted); }
 .seat-name { font-weight: 700; }
 .seat-off { font-size: 12px; color: var(--red); }
 .seat-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .lobby-actions { display: flex; flex-direction: column; gap: 10px; align-items: stretch; }
+.lobby-settings { display: flex; flex-direction: column; gap: 18px; }
+
+/* 电脑上首页和房间页放宽成两栏：首页左边开房和加入、右边房间列表；房间页左边房间码和设置、右边座位 */
+@media (min-width: 900px) {
+  .home { max-width: 1080px; padding: 72px 40px 40px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: 'head head' 'main side' 'build build'; gap: 28px 40px; align-items: start; }
+  .home-head { grid-area: head; }
+  .home-main { grid-area: main; }
+  .home-side { grid-area: side; }
+  .home .build { grid-area: build; }
+  .home h1 { font-size: 60px; }
+  .modes button { padding: 14px 4px; }
+  .modes button b { font-size: 20px; }
+  .modes button span { font-size: 13px; }
+  /* 左栏按顺序往下排（斗地主没有设置面板也不留空），座位占右栏 */
+  .lobby { max-width: 1080px; padding: 56px 40px 40px; display: grid; grid-template-columns: 380px minmax(0, 1fr); grid-template-rows: auto auto auto 1fr; gap: 20px 32px; align-items: start; }
+  .lobby > * { grid-column: 1; }
+  .lobby > .seats { grid-column: 2; grid-row: 1 / 5; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+  .seat { min-height: 140px; padding: 16px; font-size: 16px; }
+}
 
 /* 牌桌骨架 */
 .table { height: 100dvh; display: flex; flex-direction: column; max-width: 1100px; margin: 0 auto; }
