@@ -68,16 +68,20 @@ export function Home({ client }: { client: GameClient }) {
             </div>
           ) : (
             <>
+              <div className="account-bar">
+                <div className="account-who">
+                  <span className="account-label guest">游客</span>
+                  <span className="hint">不登录也能玩；注册后换设备也能接着打，名字别人不能用</span>
+                </div>
+                <div className="account-btns">
+                  <button className="ghost" onClick={() => setSheet('login')}>登录</button>
+                  <button className="primary" onClick={() => setSheet('register')}>注册</button>
+                </div>
+              </div>
               <label className="field">
                 <span>你的名字</span>
                 <input value={name} maxLength={12} placeholder="比如 小赵" onChange={(e) => setName(e.target.value)} onBlur={ensureName} />
               </label>
-              <div className="account-links">
-                有账号？<button className="link" onClick={() => setSheet('login')}>登录</button>
-                <span>·</span>
-                <button className="link" onClick={() => setSheet('register')}>注册</button>
-                <span className="hint">不登录也能玩</span>
-              </div>
             </>
           )}
           <div className="panel">
