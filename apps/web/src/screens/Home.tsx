@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { GameClient } from '../ws.ts';
 import { buildTime } from '../pwa.ts';
 import { AccountSheet, type AccountSheetMode } from '../components/AccountSheet.tsx';
+import { Avatar } from '../avatar.tsx';
 
 /** 开房可选的玩法：人数决定玩法 */
 const MODES: readonly { players: 3 | 4 | 5 | 6; label: string }[] = [
@@ -57,8 +58,9 @@ export function Home({ client }: { client: GameClient }) {
           {client.account ? (
             <div className="account-bar">
               <div className="account-who">
-                <span className="account-label">已登录</span>
+                <Avatar name={client.account.displayName} isBot={false} src={client.account.avatar} size={32} />
                 <b>{client.account.displayName}</b>
+                <span className="account-label">已登录</span>
                 <span className="hint">登录名 {client.account.username}</span>
               </div>
               <div className="account-btns">
@@ -71,7 +73,7 @@ export function Home({ client }: { client: GameClient }) {
               <div className="account-bar">
                 <div className="account-who">
                   <span className="account-label guest">游客</span>
-                  <span className="hint">不登录也能玩；注册后换设备也能接着打，名字别人不能用</span>
+                  <span className="hint">不登录也能玩；注册后换设备也能接着打，名字别人不能用，还能上传头像</span>
                 </div>
                 <div className="account-btns">
                   <button className="ghost" onClick={() => setSheet('login')}>登录</button>

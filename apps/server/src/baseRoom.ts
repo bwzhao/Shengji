@@ -36,6 +36,8 @@ export abstract class BaseRoom {
   onChange: () => void = () => {};
   /** 这个会话有没有登录账号（由 registry 接上）；没登录的真人在房间里标成游客 */
   isRegistered: (token: string) => boolean = () => false;
+  /** 这个会话的账号头像网址（由 registry 接上） */
+  avatarOf: (token: string) => string | null = () => null;
 
   abstract readonly game: GameKind;
   abstract get started(): boolean;
@@ -126,6 +128,7 @@ export abstract class BaseRoom {
           isBot: s.isBot,
           isHost: s.token === this.hostToken,
           guest: !s.isBot && !this.isRegistered(s.token),
+          avatar: s.isBot ? null : this.avatarOf(s.token),
         };
       }),
       started: this.started,

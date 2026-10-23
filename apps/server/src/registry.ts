@@ -21,6 +21,8 @@ export class Registry {
   readonly sessions = new Map<string, Session>();
   private readonly roomOptions: RoomOptions;
   private readonly store: Store | null;
+  /** 账号 id → 头像网址（由服务端接上账号） */
+  accountAvatar: (accountId: string) => string | null = () => null;
 
   constructor(roomOptions: RoomOptions = defaultRoomOptions, store: Store | null = null) {
     this.roomOptions = roomOptions;
@@ -44,6 +46,10 @@ export class Registry {
   private attach(room: BaseRoom): void {
     room.onChange = () => this.scheduleSave();
     room.isRegistered = (token) => Boolean(this.sessions.get(token)?.accountId);
+    room.avatarOf = (token) => {
+      const id = this.sessions.get(token)?.accountId;
+      return id ? this.accountAvatar(id) : null;
+    };
   }
 
   snapshot(): Snapshot {
@@ -84,6 +90,16 @@ export class Registry {
     this.rooms.set(room.code, room);
     this.scheduleSave();
     return room;
+  }
+
+  /** 这个账号所在的房间（一个账号只有一个会话） */
+  roomsOfAccount(accountId: string): BaseRoom[] {
+    const rooms: BaseRoom[] = [];
+    for (const s of this.sessions.values()) {
+      const r = s.accountId === accountId && s.roomCode ? this.rooms.get(s.roomCode) : undefined;
+      if (r) rooms.push(r);
+    }
+    return rooms;
   }
 
   /** 关闭房间并把成员的会话从房间里解绑 */
