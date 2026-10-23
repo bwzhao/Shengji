@@ -34,6 +34,8 @@ export abstract class BaseRoom {
   protected readonly rng: Rng;
   /** 任何需要落盘的变化后调用 */
   onChange: () => void = () => {};
+  /** 这个会话有没有登录账号（由 registry 接上）；没登录的真人在房间里标成游客 */
+  isRegistered: (token: string) => boolean = () => false;
 
   abstract readonly game: GameKind;
   abstract get started(): boolean;
@@ -123,6 +125,7 @@ export abstract class BaseRoom {
           connected: s.isBot || Boolean(m?.socket && m.socket.readyState === m.socket.OPEN),
           isBot: s.isBot,
           isHost: s.token === this.hostToken,
+          guest: !s.isBot && !this.isRegistered(s.token),
         };
       }),
       started: this.started,
@@ -298,6 +301,28 @@ export abstract class BaseRoom {
     if (this.started) return this.error(token, 'STARTED', '游戏已经开始');
     if (!this.seats[seat]?.isBot) return this.error(token, 'NOT_BOT', '这个座位不是机器人');
     this.seats[seat] = null;
+    this.broadcastRoom();
+  }
+
+  /**
+   * 登录后把这台设备原来的游客身份换成账号的会话：座位、房主、成员都改用新 token，局面不动。
+   * 游客在房间里、账号不在任何房间时用。
+   */
+  replaceToken(oldToken: string, newToken: string): void {
+    const m = this.members.get(oldToken);
+    if (!m) return;
+    this.members.delete(oldToken);
+    this.members.set(newToken, { ...m, token: newToken });
+    for (const [i, s] of this.seats.entries()) if (s?.token === oldToken) this.seats[i] = { ...s, token: newToken };
+    if (this.hostToken === oldToken) this.hostToken = newToken;
+    this.broadcastRoom();
+  }
+
+  /** 成员改了显示名字（登录、注册、改名后） */
+  renameMember(token: string, name: string): void {
+    const m = this.members.get(token);
+    if (!m || m.name === name) return;
+    m.name = name;
     this.broadcastRoom();
   }
 

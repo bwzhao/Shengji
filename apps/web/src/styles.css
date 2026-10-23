@@ -421,3 +421,25 @@ b { font-weight: 700; }
 .ddz-left > span { min-width: 4em; font-size: 13px; color: var(--ink-2); }
 /* 靠边的座位不要被挤窄折行 */
 .ddz .badge { width: max-content; }
+
+/* ---------- 账号 ---------- */
+.account-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; background: rgba(0,0,0,.2); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
+.account-who { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.account-who b { font-size: 18px; }
+.account-label { font-size: 12px; color: var(--gold); border: 1px solid var(--gold); border-radius: 6px; padding: 0 6px; }
+.account-btns { display: flex; gap: 6px; }
+.account-links { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); margin-top: -8px; flex-wrap: wrap; }
+.account-links .hint { margin-left: 4px; }
+button.link { background: none; border: 0; padding: 0; color: var(--gold); font-size: inherit; text-decoration: underline; cursor: pointer; }
+.account-form { display: flex; flex-direction: column; gap: 12px; }
+.account-row { display: flex; align-items: flex-end; gap: 8px; }
+.account-row .field { flex: 1; min-width: 0; }
+.hint.warn { color: #ff8a80; }
+.temp-password { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; background: rgba(224,176,82,.12); border: 1px solid var(--gold); border-radius: 10px; padding: 10px 12px; }
+.temp-password code { font-size: 18px; font-weight: 700; letter-spacing: .08em; color: var(--gold); user-select: all; -webkit-user-select: all; }
+.admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.admin-table th { text-align: left; font-weight: 600; color: var(--muted); padding: 4px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.admin-table td { padding: 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.admin-table tr.disabled td { color: var(--muted); }
+.admin-actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+.b-guest { font-size: 10px; color: var(--muted); border: 1px solid var(--line-2); border-radius: 4px; padding: 0 4px; }

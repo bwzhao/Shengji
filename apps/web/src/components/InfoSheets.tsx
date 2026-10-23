@@ -4,7 +4,7 @@ import { CardRow } from './CardView.tsx';
 
 const KIND_TEXT = { declare: '亮主', reinforce: '加固', override: '反主', chaodi: '抄底' } as const;
 
-function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+export function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="overlay info-sheet" onClick={onClose}>
       <div className="sheet" onClick={(e) => e.stopPropagation()}>

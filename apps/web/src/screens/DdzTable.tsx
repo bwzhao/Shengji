@@ -192,6 +192,7 @@ export function DdzTable({ client }: { client: GameClient }) {
                 {view.phase === 'playing' && count <= 2 && <span className="b-pass">{count === 1 ? '报单' : '报双'}</span>}
                 <span className="b-level">{view.scores[s] ?? 0} 分</span>
                 {slot && !slot.connected && <span className="b-off">离线</span>}
+                {slot?.guest && <span className="b-guest">游客</span>}
               </span>
             </div>
           );
