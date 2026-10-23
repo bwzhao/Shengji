@@ -12,6 +12,8 @@ export interface Session {
   name: string;
   roomCode: string | null;
   lastSeen: number;
+  /** 登录了哪个账号；游客没有 */
+  accountId?: string;
 }
 
 export class Registry {
@@ -41,6 +43,7 @@ export class Registry {
 
   private attach(room: BaseRoom): void {
     room.onChange = () => this.scheduleSave();
+    room.isRegistered = (token) => Boolean(this.sessions.get(token)?.accountId);
   }
 
   snapshot(): Snapshot {

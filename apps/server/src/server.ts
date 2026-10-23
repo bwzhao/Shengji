@@ -6,6 +6,7 @@ import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { parseClientMessage, type ServerMessage } from '@shengji/protocol';
+import { Accounts, type Account } from './accounts.ts';
 import { DdzRoom } from './ddzRoom.ts';
 import { Registry } from './registry.ts';
 import { Room, type RoomOptions } from './room.ts';
@@ -17,13 +18,16 @@ export interface ServerOptions {
   readonly host?: string;
   readonly roomOptions?: RoomOptions;
   readonly serveStatic?: boolean;
-  /** 快照目录，不传则不落盘 */
+  /** 快照目录，不传则不落盘（账号也存在这里） */
   readonly snapshotDir?: string;
+  /** 管理员的登录名 */
+  readonly adminUsernames?: readonly string[];
 }
 
 export interface RunningServer {
   readonly port: number;
   readonly registry: Registry;
+  readonly accounts: Accounts;
   close(): Promise<void>;
 }
 
@@ -40,6 +44,7 @@ if (options.serveStatic !== false && existsSync(webDist)) {
 
 const store = options.snapshotDir ? new Store(options.snapshotDir) : null;
 const registry = new Registry(options.roomOptions, store);
+const accounts = new Accounts(options.snapshotDir ?? null, options.adminUsernames ?? []);
 const restored = registry.restore();
 if (restored > 0) console.log(`从快照恢复了 ${restored} 个房间`);
 getSearchPool();
@@ -65,10 +70,55 @@ wss.on('connection', (ws: AliveSocket) => {
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
   let token: string | null = null;
+  /** 这条连接试过几次登录：和每个登录名输错 5 次锁 1 分钟一起防猜密码 */
+  let loginAttempts = 0;
   const room = () => {
     if (!token) return null;
     const s = registry.sessions.get(token);
     return s?.roomCode ? registry.rooms.get(s.roomCode) ?? null : null;
+  };
+
+  /** 这条连接用会话 t：发 welcome，再补发房间和牌局 */
+  const enter = (t: string, name: string, account: Account | undefined) => {
+    token = t;
+    send(ws, { t: 'welcome', token: t, name, account: account ? accounts.info(account) : null });
+    registry.scheduleSave();
+    const r = room();
+    if (r) {
+      r.join(t, name, ws);
+      r.sync(t);
+      r.broadcastRoom();
+    } else {
+      send(ws, { t: 'room', room: null });
+    }
+  };
+
+  /**
+   * 登录或注册成功：这台设备改用账号的会话，座位和房主身份跟着账号走。
+   * 第一次注册的游客直接沿用自己的会话；账号已有会话时，游客的座位在账号不在任何房间时带过去，否则游客退出房间。
+   */
+  const signIn = (account: Account) => {
+    const prev = token ? registry.sessions.get(token) : undefined;
+    if (!account.token) accounts.setToken(account, prev && !prev.accountId ? prev.token : registry.newToken());
+    const accToken = account.token as string;
+    let session = registry.sessions.get(accToken);
+    if (!session) {
+      session = { token: accToken, name: account.displayName, roomCode: null, lastSeen: Date.now() };
+      registry.sessions.set(accToken, session);
+    }
+    session.accountId = account.id;
+    session.name = account.displayName;
+    session.lastSeen = Date.now();
+    if (prev && prev.token !== accToken) {
+      const prevRoom = prev.roomCode ? registry.rooms.get(prev.roomCode) : undefined;
+      if (prevRoom && prev.accountId) prevRoom.detach(prev.token, ws);
+      else if (prevRoom && !session.roomCode) { prevRoom.replaceToken(prev.token, accToken); session.roomCode = prevRoom.code; }
+      else prevRoom?.leave(prev.token);
+      if (!prev.accountId) registry.sessions.delete(prev.token);
+    }
+    // 游客时的名字换成账号的显示名字
+    if (session.roomCode) registry.rooms.get(session.roomCode)?.renameMember(accToken, account.displayName);
+    enter(accToken, account.displayName, account);
   };
 
   ws.on('message', (data) => {
@@ -76,26 +126,33 @@ wss.on('connection', (ws: AliveSocket) => {
     if (!msg) return send(ws, { t: 'error', code: 'BAD_MESSAGE', message: '消息格式不正确' });
 
     if (msg.t === 'hello') {
-      const existing = msg.token ? registry.sessions.get(msg.token) : undefined;
+      let existing = msg.token ? registry.sessions.get(msg.token) : undefined;
+      const account = existing?.accountId ? accounts.get(existing.accountId) : undefined;
+      // 登录过的设备：名字用账号的显示名字
+      if (existing && account && !account.disabled) {
+        existing.name = account.displayName;
+        existing.lastSeen = Date.now();
+        return enter(existing.token, account.displayName, account);
+      }
+      // 账号被停用了：这台设备当作新来的游客
+      if (existing?.accountId) existing = undefined;
+      if (accounts.nameTaken(msg.name)) {
+        return send(ws, { t: 'error', code: 'NAME_TAKEN', message: `「${msg.name}」是已注册账号的显示名字，请换一个名字，或者登录这个账号` });
+      }
       if (existing) {
-        token = existing.token;
         existing.name = msg.name;
         existing.lastSeen = Date.now();
       } else {
-        token = registry.newToken();
-        registry.sessions.set(token, { token, name: msg.name, roomCode: null, lastSeen: Date.now() });
+        existing = { token: registry.newToken(), name: msg.name, roomCode: null, lastSeen: Date.now() };
+        registry.sessions.set(existing.token, existing);
       }
-      send(ws, { t: 'welcome', token, name: msg.name });
-      registry.scheduleSave();
-      const r = room();
-      if (r) {
-        r.join(token, msg.name, ws);
-        r.sync(token);
-        r.broadcastRoom();
-      } else {
-        send(ws, { t: 'room', room: null });
-      }
-      return;
+      return enter(existing.token, msg.name, undefined);
+    }
+    if (msg.t === 'register' || msg.t === 'login') {
+      if (++loginAttempts > 20) return send(ws, { t: 'error', code: 'TOO_MANY', message: '试得太多了，刷新页面后再试' });
+      const r = msg.t === 'register' ? accounts.register(msg.username, msg.password, msg.displayName) : accounts.login(msg.username, msg.password);
+      if (!r.ok) return send(ws, { t: 'error', code: msg.t === 'register' ? 'REGISTER_FAILED' : 'LOGIN_FAILED', message: r.message });
+      return signIn(r.account);
     }
 
     if (!token && msg.t === 'ping') return send(ws, { t: 'pong' });
@@ -104,8 +161,57 @@ wss.on('connection', (ws: AliveSocket) => {
     if (!session) return send(ws, { t: 'error', code: 'NO_SESSION', message: '会话已失效，请刷新' });
     session.lastSeen = Date.now();
 
+    const account = session.accountId ? accounts.get(session.accountId) : undefined;
     switch (msg.t) {
       case 'ping': return send(ws, { t: 'pong' });
+      case 'logout': {
+        if (!account) return send(ws, { t: 'error', code: 'NOT_LOGGED_IN', message: '你还没有登录' });
+        // 这台设备回到首页当游客；牌局中座位留给账号（显示离线），开局前和断线一样让座
+        room()?.detach(token, ws);
+        token = null;
+        return send(ws, { t: 'loggedOut' });
+      }
+      case 'setDisplayName': {
+        if (!account) return send(ws, { t: 'error', code: 'NOT_LOGGED_IN', message: '登录后才能改显示名字' });
+        const err = accounts.setDisplayName(account, msg.displayName);
+        if (err) return send(ws, { t: 'error', code: 'BAD_NAME', message: err });
+        session.name = account.displayName;
+        room()?.renameMember(token, account.displayName);
+        registry.scheduleSave();
+        return send(ws, { t: 'account', account: accounts.info(account) });
+      }
+      case 'changePassword': {
+        if (!account) return send(ws, { t: 'error', code: 'NOT_LOGGED_IN', message: '你还没有登录' });
+        const err = accounts.changePassword(account, msg.oldPassword, msg.newPassword);
+        if (err) return send(ws, { t: 'error', code: 'BAD_PASSWORD', message: err });
+        return send(ws, { t: 'notice', message: '密码改好了' });
+      }
+      case 'adminListAccounts':
+      case 'adminResetPassword':
+      case 'adminSetDisabled': {
+        if (!account || !accounts.isAdmin(account)) return send(ws, { t: 'error', code: 'NOT_ADMIN', message: '只有管理员能管理账号' });
+        if (msg.t === 'adminResetPassword') {
+          const pw = accounts.resetPassword(msg.username);
+          if (!pw) return send(ws, { t: 'error', code: 'NO_ACCOUNT', message: '没有这个账号' });
+          return send(ws, { t: 'adminTempPassword', username: msg.username.toLowerCase(), password: pw });
+        }
+        if (msg.t === 'adminSetDisabled') {
+          if (msg.username.toLowerCase() === account.username) return send(ws, { t: 'error', code: 'BAD_ADMIN', message: '不能停用自己的账号' });
+          const target = accounts.setDisabled(msg.username, msg.disabled);
+          if (!target) return send(ws, { t: 'error', code: 'NO_ACCOUNT', message: '没有这个账号' });
+          // 停用：登出这个账号的所有设备，座位留着显示离线
+          if (msg.disabled) {
+            for (const [t, s] of registry.sessions) {
+              if (s.accountId !== target.id) continue;
+              const m = s.roomCode ? registry.rooms.get(s.roomCode)?.members.get(t) : undefined;
+              if (m?.socket) send(m.socket, { t: 'loggedOut' });
+              registry.sessions.delete(t);
+            }
+            registry.scheduleSave();
+          }
+        }
+        return send(ws, { t: 'adminAccounts', accounts: accounts.list() });
+      }
       case 'closeRoom': {
         const code = (msg.code ?? session.roomCode ?? '').toUpperCase();
         const r = registry.rooms.get(code);
@@ -221,6 +327,7 @@ const port = typeof addr === 'object' && addr ? addr.port : options.port;
 return {
   port,
   registry,
+  accounts,
   staticDir: existsSync(webDist) ? webDist : null,
   async close() {
     clearInterval(gcTimer);

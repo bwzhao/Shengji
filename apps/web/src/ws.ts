@@ -1,7 +1,7 @@
 /** 与服务端的 WebSocket 连接：自动重连、会话 token 持久化。 */
 import { useEffect, useRef, useState } from 'react';
 import type { DdzEvent, DdzView, GameEvent, PlayerView } from '@shengji/engine';
-import type { ClientMessage, RoomInfo, RoomSummary, RoundReplay, ServerMessage } from '@shengji/protocol';
+import type { AccountInfo, AdminAccountRow, ClientMessage, RoomInfo, RoomSummary, RoundReplay, ServerMessage } from '@shengji/protocol';
 import { checkForUpdate } from './pwa.ts';
 import { connectSocket } from './connection.ts';
 
@@ -14,6 +14,11 @@ export interface Toast {
 export interface GameClient {
   readonly connected: boolean;
   readonly name: string;
+  /** 登录的账号；游客为 null */
+  readonly account: AccountInfo | null;
+  /** 管理员看到的账号列表，和刚重置出来的临时密码 */
+  readonly adminAccounts: readonly AdminAccountRow[] | null;
+  readonly tempPassword: { readonly username: string; readonly password: string } | null;
   readonly room: RoomInfo | null;
   readonly view: PlayerView | null;
   readonly events: readonly GameEvent[];
@@ -39,6 +44,7 @@ export interface GameClient {
   closeReplay(): void;
   setName(name: string): void;
   dismissToast(id: number): void;
+  clearTempPassword(): void;
 }
 
 const NAME_KEY = 'shengji.name';
@@ -55,6 +61,9 @@ export function useGameClient(): GameClient {
   const [connected, setConnected] = useState(false);
   const [name, setNameState] = useState(() => localStorage.getItem(NAME_KEY) ?? '');
   const [room, setRoom] = useState<RoomInfo | null>(null);
+  const [account, setAccount] = useState<AccountInfo | null>(null);
+  const [adminAccounts, setAdminAccounts] = useState<readonly AdminAccountRow[] | null>(null);
+  const [tempPassword, setTempPassword] = useState<{ username: string; password: string } | null>(null);
   const [view, setView] = useState<PlayerView | null>(null);
   const [events, setEvents] = useState<readonly GameEvent[]>([]);
   const [ddzView, setDdzView] = useState<DdzView | null>(null);
@@ -95,7 +104,24 @@ export function useGameClient(): GameClient {
       onMessage: (data) => {
         const msg = JSON.parse(data) as ServerMessage;
         switch (msg.t) {
-          case 'welcome': localStorage.setItem(TOKEN_KEY, msg.token); void checkForUpdate(); break;
+          case 'welcome':
+            localStorage.setItem(TOKEN_KEY, msg.token);
+            setAccount(msg.account);
+            // 登录后名字就是账号的显示名字
+            rememberName(msg.name);
+            void checkForUpdate();
+            break;
+          case 'account': setAccount(msg.account); rememberName(msg.account.displayName); break;
+          case 'loggedOut':
+            // 这台设备回到首页，重新填名字当游客；账号的座位留着
+            localStorage.removeItem(TOKEN_KEY);
+            setAccount(null); setAdminAccounts(null); rememberName('');
+            setRoom(null); setView(null); setDdzView(null);
+            pushToast('info', '已退出登录');
+            break;
+          case 'notice': pushToast('info', msg.message); break;
+          case 'adminAccounts': setAdminAccounts(msg.accounts); break;
+          case 'adminTempPassword': setTempPassword({ username: msg.username, password: msg.password }); break;
           case 'room':
             if (localStorage.getItem(PENDING_LEAVE_KEY)) {
               // 退出还没被服务端确认前，忽略把我们拉回房间的消息
@@ -119,7 +145,11 @@ export function useGameClient(): GameClient {
             if (localStorage.getItem(PENDING_LEAVE_KEY)) break;
             setDdzView(msg.view); setDdzEvents(msg.events);
             break;
-          case 'error': pushToast('error', msg.message); break;
+          case 'error':
+            // 游客用了已注册账号的显示名字：清掉名字，回首页重新填
+            if (msg.code === 'NAME_TAKEN') rememberName('');
+            pushToast('error', msg.message);
+            break;
           case 'replay': setReplay(msg.replay); break;
           case 'rooms': setRooms(msg.rooms); break;
           case 'pong': break;
@@ -140,6 +170,13 @@ export function useGameClient(): GameClient {
     if (!connectionRef.current?.send(JSON.stringify(msg)) && msg.t !== 'leaveRoom') pushToast('error', '还没连上服务器');
   };
 
+  /** 记下服务端认定的名字（不再发 hello） */
+  function rememberName(n: string): void {
+    nameRef.current = n;
+    setNameState(n);
+    if (n) localStorage.setItem(NAME_KEY, n); else localStorage.removeItem(NAME_KEY);
+  }
+
   const setName = (n: string) => {
     const trimmed = n.trim().slice(0, 12);
     nameRef.current = trimmed;
@@ -152,8 +189,9 @@ export function useGameClient(): GameClient {
   };
 
   return {
-    connected, name, room, view, events, ddzView, ddzEvents, declareDeadline, declarePassed, chaodiDeadline, guoheDeadline, zaofanDeadline, zaofanPassed, toasts, replay, rooms, send, setName,
+    connected, name, account, adminAccounts, tempPassword, room, view, events, ddzView, ddzEvents, declareDeadline, declarePassed, chaodiDeadline, guoheDeadline, zaofanDeadline, zaofanPassed, toasts, replay, rooms, send, setName,
     closeReplay: () => setReplay(null),
+    clearTempPassword: () => setTempPassword(null),
     dismissToast: (id) => setToasts((t) => t.filter((x) => x.id !== id)),
   };
 }

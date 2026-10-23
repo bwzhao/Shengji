@@ -16,6 +16,16 @@ export const friendCallSchema = z.object({
 
 export const clientMessageSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('hello'), name: z.string().trim().min(1).max(12), token: z.string().min(8).max(64).optional() }),
+  /** 账号：注册（同时登录）、登录、退出登录、改显示名字、改密码。登录名和显示名字是两回事 */
+  z.object({ t: z.literal('register'), username: z.string().trim().min(1).max(40), password: z.string().min(1).max(100), displayName: z.string().trim().min(1).max(12) }),
+  z.object({ t: z.literal('login'), username: z.string().trim().min(1).max(40), password: z.string().min(1).max(100) }),
+  z.object({ t: z.literal('logout') }),
+  z.object({ t: z.literal('setDisplayName'), displayName: z.string().trim().min(1).max(12) }),
+  z.object({ t: z.literal('changePassword'), oldPassword: z.string().min(1).max(100), newPassword: z.string().min(1).max(100) }),
+  /** 管理员：账号列表、重置密码（给一个临时密码）、停用或恢复账号 */
+  z.object({ t: z.literal('adminListAccounts') }),
+  z.object({ t: z.literal('adminResetPassword'), username: z.string().trim().min(1).max(40) }),
+  z.object({ t: z.literal('adminSetDisabled'), username: z.string().trim().min(1).max(40), disabled: z.boolean() }),
   /** 3 人开斗地主房间，4~6 人开升级 */
   z.object({ t: z.literal('createRoom'), players: z.union([z.literal(3), z.literal(4), z.literal(5), z.literal(6)]) }),
   z.object({ t: z.literal('listRooms') }),
@@ -76,6 +86,25 @@ export interface RoomPlayer {
   readonly connected: boolean;
   readonly isBot: boolean;
   readonly isHost: boolean;
+  /** 没登录账号的真人 */
+  readonly guest: boolean;
+}
+
+/** 已登录的账号：登录名只用来登录，显示名字是牌桌上看到的 */
+export interface AccountInfo {
+  readonly username: string;
+  readonly displayName: string;
+  readonly isAdmin: boolean;
+}
+
+/** 管理页里的一行 */
+export interface AdminAccountRow {
+  readonly username: string;
+  readonly displayName: string;
+  readonly isAdmin: boolean;
+  readonly disabled: boolean;
+  readonly createdAt: number;
+  readonly lastLoginAt: number | null;
 }
 
 export interface RoomInfo {
@@ -118,7 +147,17 @@ export interface RoomSummary {
 }
 
 export type ServerMessage =
-  | { readonly t: 'welcome'; readonly token: string; readonly name: string }
+  /** 连上、登录、注册后都发：token 是这台设备之后用的会话，account 为 null 是游客 */
+  | { readonly t: 'welcome'; readonly token: string; readonly name: string; readonly account: AccountInfo | null }
+  /** 改了显示名字 */
+  | { readonly t: 'account'; readonly account: AccountInfo }
+  /** 一般提示，比如「密码改好了」 */
+  | { readonly t: 'notice'; readonly message: string }
+  /** 退出登录了：这台设备回到首页，重新填名字当游客 */
+  | { readonly t: 'loggedOut' }
+  | { readonly t: 'adminAccounts'; readonly accounts: readonly AdminAccountRow[] }
+  /** 管理员重置密码后给的临时密码，只发给管理员这一次 */
+  | { readonly t: 'adminTempPassword'; readonly username: string; readonly password: string }
   | { readonly t: 'room'; readonly room: RoomInfo | null }
   /** declareLeftMs：发完牌后亮主思考时间还剩多少毫秒；declarePassed：点了「不反」的座位。都只在 declaring 阶段有；chaodiLeftMs：四人抄底轮到真人时还剩多少毫秒；guoheLeftMs：四人过河还有真人没决定时还剩多少毫秒；zaofanLeftMs、zaofanPassed：机器人庄家埋底前等真人造反还剩多少毫秒、谁点了「不造反」 */
   | { readonly t: 'state'; readonly seq: number; readonly view: PlayerView; readonly events: readonly GameEvent[]; readonly declareLeftMs?: number; readonly declarePassed?: readonly Seat[]; readonly chaodiLeftMs?: number; readonly guoheLeftMs?: number; readonly zaofanLeftMs?: number; readonly zaofanPassed?: readonly Seat[] }

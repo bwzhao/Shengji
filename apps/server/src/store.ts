@@ -29,6 +29,8 @@ export interface SessionSnapshot {
   readonly name: string;
   readonly roomCode: string | null;
   readonly lastSeen: number;
+  /** 登录的账号；旧快照和游客没有 */
+  readonly accountId?: string;
 }
 
 export interface Snapshot {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { GameClient } from '../ws.ts';
 import { buildTime } from '../pwa.ts';
+import { AccountSheet, type AccountSheetMode } from '../components/AccountSheet.tsx';
 
 /** 开房可选的玩法：人数决定玩法 */
 const MODES: readonly { players: 3 | 4 | 5 | 6; label: string }[] = [
@@ -14,7 +15,10 @@ export function Home({ client }: { client: GameClient }) {
   const [name, setName] = useState(client.name);
   const [code, setCode] = useState(() => (new URLSearchParams(location.search).get('room') ?? '').toUpperCase().slice(0, 4));
   const [players, setPlayers] = useState<3 | 4 | 5 | 6>(6);
+  const [sheet, setSheet] = useState<AccountSheetMode | null>(null);
   const ready = name.trim().length > 0;
+  // 登录、改显示名字、退出登录后名字跟着变
+  useEffect(() => { setName(client.name); }, [client.name]);
 
   // 已登记名字后，每 4 秒刷新一次服务器上的房间
   useEffect(() => {
@@ -37,8 +41,9 @@ export function Home({ client }: { client: GameClient }) {
     }
   };
 
+  // 登录后名字就是账号的显示名字，不用再登记
   const ensureName = () => {
-    if (name.trim() !== client.name) client.setName(name);
+    if (!client.account && name.trim() !== client.name) client.setName(name);
   };
 
   return (
@@ -49,10 +54,32 @@ export function Home({ client }: { client: GameClient }) {
           <p className="sub">找朋友 · 四人对家升级 · 三人斗地主</p>
         </header>
         <div className="home-main">
-          <label className="field">
-            <span>你的名字</span>
-            <input value={name} maxLength={12} placeholder="比如 小赵" onChange={(e) => setName(e.target.value)} onBlur={ensureName} />
-          </label>
+          {client.account ? (
+            <div className="account-bar">
+              <div className="account-who">
+                <span className="account-label">已登录</span>
+                <b>{client.account.displayName}</b>
+                <span className="hint">登录名 {client.account.username}</span>
+              </div>
+              <div className="account-btns">
+                <button className="ghost small" onClick={() => setSheet('settings')}>账号设置</button>
+                {client.account.isAdmin && <button className="ghost small" onClick={() => setSheet('admin')}>管理账号</button>}
+              </div>
+            </div>
+          ) : (
+            <>
+              <label className="field">
+                <span>你的名字</span>
+                <input value={name} maxLength={12} placeholder="比如 小赵" onChange={(e) => setName(e.target.value)} onBlur={ensureName} />
+              </label>
+              <div className="account-links">
+                有账号？<button className="link" onClick={() => setSheet('login')}>登录</button>
+                <span>·</span>
+                <button className="link" onClick={() => setSheet('register')}>注册</button>
+                <span className="hint">不登录也能玩</span>
+              </div>
+            </>
+          )}
           <div className="panel">
             <div className="panel-title">开房</div>
             <div className="modes">
@@ -117,6 +144,7 @@ export function Home({ client }: { client: GameClient }) {
         </div>
         <div className="build">版本 {buildTime}</div>
       </div>
+      {sheet && <AccountSheet client={client} mode={sheet} onMode={setSheet} onClose={() => setSheet(null)} />}
     </div>
   );
 }

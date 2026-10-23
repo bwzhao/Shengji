@@ -11,7 +11,9 @@ const valueLoaded = loadValueModels();
 
 const port = Number(process.env.PORT ?? 3000);
 const snapshotDir = process.env.SNAPSHOT_DIR ?? '.data';
-const running = await startServer({ port, snapshotDir }) as Awaited<ReturnType<typeof startServer>> & { staticDir: string | null };
+// 管理员的登录名，逗号分隔
+const adminUsernames = (process.env.ADMIN_USERNAMES ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+const running = await startServer({ port, snapshotDir, adminUsernames }) as Awaited<ReturnType<typeof startServer>> & { staticDir: string | null };
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, () => { void running.close().then(() => process.exit(0)); });
 }

@@ -503,6 +503,7 @@ export function Table({ client }: { client: GameClient }) {
                 <span className="b-count">{view.handCounts[seat]}</span>
                 {shownLeader === seat && <span className="b-lead" title="这一墩是他先出的">首</span>}
                 {s && !s.connected && <span className="b-off">离线</span>}
+                {s?.guest && <span className="b-guest">游客</span>}
                 {passed.includes(seat) && <span className="b-pass">不反</span>}
                 {view.guohe?.crossings.some((c) => c.from === seat) && <span className="b-pass">过河</span>}
                 {zaofanPassed.includes(seat) && <span className="b-pass">不造反</span>}
