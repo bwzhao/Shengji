@@ -23,7 +23,7 @@ export function Lobby({ client }: { client: GameClient }) {
               <div className="seat-no">{i + 1} 号位</div>
               {s ? (
                 <>
-                  <div className="seat-name"><Avatar name={s.name} isBot={s.isBot} size={44} />{s.name}{s.isHost && <span className="tag">房主</span>}{s.isBot && <span className="tag">机器人</span>}{s.guest && <span className="tag">游客</span>}</div>
+                  <div className="seat-name"><Avatar name={s.name} isBot={s.isBot} src={s.avatar} size={44} />{s.name}{s.isHost && <span className="tag">房主</span>}{s.isBot && <span className="tag">机器人</span>}{s.guest && <span className="tag">游客</span>}</div>
                   {!s.connected && <div className="seat-off">已断线</div>}
                   {room.youAreHost && s.isBot && <button className="ghost small" onClick={() => client.send({ t: 'removeBot', seat: i })}>移除</button>}
                   {room.you === i && <button className="ghost small" onClick={() => client.send({ t: 'stand' })}>起立</button>}

@@ -185,7 +185,7 @@ export function DdzTable({ client }: { client: GameClient }) {
               onClick={spectating ? () => send({ t: 'watch', seat: s }) : undefined}
               title={spectating ? `看 ${name(s)} 的牌` : undefined}
             >
-              <span className="b-avatar"><Avatar name={name(s)} isBot={Boolean(slot?.isBot)} size={40} />{role && <span className={`role role-dot ${role === '地主' ? 'dealer' : 'opp'}`}>{role === '地主' ? '地' : '农'}</span>}</span>
+              <span className="b-avatar"><Avatar name={name(s)} isBot={Boolean(slot?.isBot)} src={slot?.avatar} size={40} />{role && <span className={`role role-dot ${role === '地主' ? 'dealer' : 'opp'}`}>{role === '地主' ? '地' : '农'}</span>}</span>
               <span className="b-name">{name(s)}</span>
               <span className="b-meta">
                 <span className="b-count">{count}</span>

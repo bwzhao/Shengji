@@ -22,10 +22,13 @@ export const clientMessageSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('logout') }),
   z.object({ t: z.literal('setDisplayName'), displayName: z.string().trim().min(1).max(12) }),
   z.object({ t: z.literal('changePassword'), oldPassword: z.string().min(1).max(100), newPassword: z.string().min(1).max(100) }),
-  /** 管理员：账号列表、重置密码（给一个临时密码）、停用或恢复账号 */
+  /** 换头像：浏览器裁好、压好的图片的 base64（最多 64 KB，base64 后约 87 KB）；null 是删掉头像 */
+  z.object({ t: z.literal('setAvatar'), data: z.string().min(1).max(90_000).nullable() }),
+  /** 管理员：账号列表、重置密码（给一个临时密码）、停用或恢复账号、删掉不合适的头像 */
   z.object({ t: z.literal('adminListAccounts') }),
   z.object({ t: z.literal('adminResetPassword'), username: z.string().trim().min(1).max(40) }),
   z.object({ t: z.literal('adminSetDisabled'), username: z.string().trim().min(1).max(40), disabled: z.boolean() }),
+  z.object({ t: z.literal('adminRemoveAvatar'), username: z.string().trim().min(1).max(40) }),
   /** 3 人开斗地主房间，4~6 人开升级 */
   z.object({ t: z.literal('createRoom'), players: z.union([z.literal(3), z.literal(4), z.literal(5), z.literal(6)]) }),
   z.object({ t: z.literal('listRooms') }),
@@ -88,6 +91,8 @@ export interface RoomPlayer {
   readonly isHost: boolean;
   /** 没登录账号的真人 */
   readonly guest: boolean;
+  /** 注册用户上传的头像网址；没有为 null（机器人用明星照片，其他人用名字首字） */
+  readonly avatar: string | null;
 }
 
 /** 已登录的账号：登录名只用来登录，显示名字是牌桌上看到的 */
@@ -95,6 +100,7 @@ export interface AccountInfo {
   readonly username: string;
   readonly displayName: string;
   readonly isAdmin: boolean;
+  readonly avatar: string | null;
 }
 
 /** 管理页里的一行 */
@@ -105,6 +111,7 @@ export interface AdminAccountRow {
   readonly disabled: boolean;
   readonly createdAt: number;
   readonly lastLoginAt: number | null;
+  readonly avatar: string | null;
 }
 
 export interface RoomInfo {
@@ -149,7 +156,7 @@ export interface RoomSummary {
 export type ServerMessage =
   /** 连上、登录、注册后都发：token 是这台设备之后用的会话，account 为 null 是游客 */
   | { readonly t: 'welcome'; readonly token: string; readonly name: string; readonly account: AccountInfo | null }
-  /** 改了显示名字 */
+  /** 改了显示名字或头像 */
   | { readonly t: 'account'; readonly account: AccountInfo }
   /** 一般提示，比如「密码改好了」 */
   | { readonly t: 'notice'; readonly message: string }

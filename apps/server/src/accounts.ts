@@ -2,11 +2,13 @@
  * 账号（GitHub issue #36）：登录名 + 密码，另有可以随时改的显示名字。游客照常能玩，账号只是保住身份：
  * 换设备、清浏览器后还是同一个人，座位和房主身份跟着账号走，显示名字别人不能冒用。
  * 账号存在快照目录的 accounts.json，密码用 scrypt 加盐哈希。管理员由环境变量 ADMIN_USERNAMES 指定。
+ * 注册用户可以上传头像，存在快照目录的 avatars/ 里，启动时读进内存（每个最多 64 KB）。
  */
-import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AccountInfo, AdminAccountRow } from '@shengji/protocol';
+import { checkAvatar, type AvatarType } from './avatarImage.ts';
 
 export interface Account {
   readonly id: string;
@@ -19,6 +21,8 @@ export interface Account {
   lastLoginAt: number | null;
   /** 这个账号的会话 token：在哪台设备登录都用它，座位跟着它走 */
   token: string | null;
+  /** 头像文件名「内容哈希.扩展名」，换了头像哈希就变，网址跟着变，浏览器缓存不会看到旧的；没有头像为 null */
+  avatar?: string | null;
 }
 
 interface AccountsFile {
@@ -75,11 +79,15 @@ export class Accounts {
   private readonly admins: ReadonlySet<string>;
   /** 每个登录名连续输错的次数和锁到什么时候 */
   private readonly failures = new Map<string, { count: number; lockedUntil: number }>();
+  private readonly avatarDir: string | null;
+  /** 账号 id → 头像图片 */
+  private readonly avatars = new Map<string, { readonly data: Buffer; readonly type: AvatarType }>();
 
   constructor(dir: string | null, adminUsernames: readonly string[] = []) {
     this.admins = new Set(adminUsernames.map((u) => u.trim().toLowerCase()).filter(Boolean));
     this.file = dir ? join(dir, 'accounts.json') : null;
-    if (dir) mkdirSync(dir, { recursive: true });
+    this.avatarDir = dir ? join(dir, 'avatars') : null;
+    if (this.avatarDir) mkdirSync(this.avatarDir, { recursive: true });
     this.load();
   }
 
@@ -90,6 +98,22 @@ export class Accounts {
       for (const a of parsed.accounts) this.byId.set(a.id, { ...a });
     } catch (err) {
       console.error('读取账号文件失败：', (err as Error).message);
+    }
+    for (const a of this.byId.values()) {
+      if (!a.avatar) continue;
+      const img = this.avatarDir ? this.readAvatar(join(this.avatarDir, `${a.id}.${a.avatar.split('.')[1]}`)) : null;
+      if (img) this.avatars.set(a.id, img);
+      else a.avatar = null;
+    }
+  }
+
+  private readAvatar(path: string): { data: Buffer; type: AvatarType } | null {
+    try {
+      const data = readFileSync(path);
+      const img = checkAvatar(data);
+      return typeof img === 'string' ? null : { data, type: img.type };
+    } catch {
+      return null;
     }
   }
 
@@ -124,7 +148,49 @@ export class Accounts {
   }
 
   info(a: Account): AccountInfo {
-    return { username: a.username, displayName: a.displayName, isAdmin: this.isAdmin(a) };
+    return { username: a.username, displayName: a.displayName, isAdmin: this.isAdmin(a), avatar: this.avatarUrl(a.id) };
+  }
+
+  // ---------- 头像 ----------
+
+  /** 头像的网址，带上内容哈希；没有头像返回 null */
+  avatarUrl(id: string): string | null {
+    const a = this.byId.get(id);
+    return a?.avatar ? `/avatar/${a.id}?v=${a.avatar.split('.')[0]}` : null;
+  }
+
+  /** 给 HTTP 接口用：头像图片和现在的哈希 */
+  avatarFile(id: string): { readonly data: Buffer; readonly type: AvatarType; readonly version: string } | null {
+    const a = this.byId.get(id);
+    const img = this.avatars.get(id);
+    return a?.avatar && img ? { ...img, version: a.avatar.split('.')[0] as string } : null;
+  }
+
+  /** 换头像；data 为 null 是删掉头像。不合格返回提示 */
+  setAvatar(account: Account, data: Buffer | null): string | null {
+    const old = account.avatar ?? null;
+    if (data === null) {
+      if (!old) return null;
+      account.avatar = null;
+      this.avatars.delete(account.id);
+    } else {
+      const img = checkAvatar(data);
+      if (typeof img === 'string') return img;
+      account.avatar = `${createHash('sha256').update(data).digest('hex').slice(0, 12)}.${img.ext}`;
+      this.avatars.set(account.id, { data, type: img.type });
+      if (this.avatarDir) {
+        const path = join(this.avatarDir, `${account.id}.${img.ext}`);
+        writeFileSync(`${path}.tmp`, data);
+        renameSync(`${path}.tmp`, path);
+      }
+    }
+    // 换了格式（或删了）：旧文件不要了
+    const oldExt = old?.split('.')[1];
+    if (this.avatarDir && oldExt && oldExt !== account.avatar?.split('.')[1]) {
+      rmSync(join(this.avatarDir, `${account.id}.${oldExt}`), { force: true });
+    }
+    this.save();
+    return null;
   }
 
   register(username: string, password: string, displayName: string): AccountResult {
@@ -197,7 +263,7 @@ export class Accounts {
   list(): AdminAccountRow[] {
     return [...this.byId.values()]
       .sort((a, b) => a.createdAt - b.createdAt)
-      .map((a) => ({ username: a.username, displayName: a.displayName, isAdmin: this.isAdmin(a), disabled: a.disabled, createdAt: a.createdAt, lastLoginAt: a.lastLoginAt }));
+      .map((a) => ({ username: a.username, displayName: a.displayName, isAdmin: this.isAdmin(a), disabled: a.disabled, createdAt: a.createdAt, lastLoginAt: a.lastLoginAt, avatar: this.avatarUrl(a.id) }));
   }
 
   /** 重置成一个临时密码并返回它；账号不存在返回 null */

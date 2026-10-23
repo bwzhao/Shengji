@@ -45,13 +45,26 @@ if (options.serveStatic !== false && existsSync(webDist)) {
 const store = options.snapshotDir ? new Store(options.snapshotDir) : null;
 const registry = new Registry(options.roomOptions, store);
 const accounts = new Accounts(options.snapshotDir ?? null, options.adminUsernames ?? []);
+registry.accountAvatar = (id) => accounts.avatarUrl(id);
 const restored = registry.restore();
 if (restored > 0) console.log(`从快照恢复了 ${restored} 个房间`);
 getSearchPool();
 const gcTimer = setInterval(() => registry.gc(), 10 * 60_000);
 gcTimer.unref();
 
-const wss = new WebSocketServer({ noServer: true });
+/** 头像图片：网址带着内容哈希，哈希对得上就让浏览器一直缓存 */
+app.get<{ Params: { id: string }; Querystring: { v?: string } }>('/avatar/:id', async (req, reply) => {
+  const file = accounts.avatarFile(req.params.id);
+  if (!file) return reply.code(404).send();
+  return reply
+    .header('Content-Type', file.type)
+    .header('X-Content-Type-Options', 'nosniff')
+    .header('Cache-Control', req.query.v === file.version ? 'public, max-age=31536000, immutable' : 'no-cache')
+    .send(file.data);
+});
+
+// 最大的消息是上传头像（base64 后不到 90 KB），其余都很小
+const wss = new WebSocketServer({ noServer: true, maxPayload: 256 * 1024 });
 type AliveSocket = WebSocket & { isAlive?: boolean };
 const heartbeat = setInterval(() => {
   for (const c of wss.clients as Set<AliveSocket>) {
@@ -69,9 +82,13 @@ function send(ws: WebSocket, msg: ServerMessage): void {
 wss.on('connection', (ws: AliveSocket) => {
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
+  // 消息太大或帧格式不对：ws 会自己断开这条连接，这里接住错误，不让整个服务端崩掉
+  ws.on('error', () => {});
   let token: string | null = null;
   /** 这条连接试过几次登录：和每个登录名输错 5 次锁 1 分钟一起防猜密码 */
   let loginAttempts = 0;
+  /** 这条连接换了几次头像：每次都要写盘，不让一直刷 */
+  let avatarUploads = 0;
   const room = () => {
     if (!token) return null;
     const s = registry.sessions.get(token);
@@ -186,14 +203,34 @@ wss.on('connection', (ws: AliveSocket) => {
         if (err) return send(ws, { t: 'error', code: 'BAD_PASSWORD', message: err });
         return send(ws, { t: 'notice', message: '密码改好了' });
       }
+      case 'setAvatar': {
+        if (!account) return send(ws, { t: 'error', code: 'NOT_LOGGED_IN', message: '注册登录后才能上传头像' });
+        if (++avatarUploads > 30) return send(ws, { t: 'error', code: 'TOO_MANY', message: '换得太频繁了，刷新页面后再试' });
+        const err = accounts.setAvatar(account, msg.data === null ? null : Buffer.from(msg.data, 'base64'));
+        if (err) return send(ws, { t: 'error', code: 'BAD_AVATAR', message: err });
+        room()?.broadcastRoom();
+        return send(ws, { t: 'account', account: accounts.info(account) });
+      }
       case 'adminListAccounts':
       case 'adminResetPassword':
-      case 'adminSetDisabled': {
+      case 'adminSetDisabled':
+      case 'adminRemoveAvatar': {
         if (!account || !accounts.isAdmin(account)) return send(ws, { t: 'error', code: 'NOT_ADMIN', message: '只有管理员能管理账号' });
         if (msg.t === 'adminResetPassword') {
           const pw = accounts.resetPassword(msg.username);
           if (!pw) return send(ws, { t: 'error', code: 'NO_ACCOUNT', message: '没有这个账号' });
           return send(ws, { t: 'adminTempPassword', username: msg.username.toLowerCase(), password: pw });
+        }
+        if (msg.t === 'adminRemoveAvatar') {
+          const target = accounts.find(msg.username);
+          if (!target) return send(ws, { t: 'error', code: 'NO_ACCOUNT', message: '没有这个账号' });
+          accounts.setAvatar(target, null);
+          // 牌桌上马上换回名字首字；本人在房间里的话首页的账号栏也跟着变
+          for (const r of registry.roomsOfAccount(target.id)) {
+            r.broadcastRoom();
+            const m = target.token ? r.members.get(target.token) : undefined;
+            if (m?.socket) send(m.socket, { t: 'account', account: accounts.info(target) });
+          }
         }
         if (msg.t === 'adminSetDisabled') {
           if (msg.username.toLowerCase() === account.username) return send(ws, { t: 'error', code: 'BAD_ADMIN', message: '不能停用自己的账号' });

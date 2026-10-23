@@ -496,7 +496,7 @@ export function Table({ client }: { client: GameClient }) {
               onClick={spectating ? () => send({ t: 'watch', seat }) : undefined}
               title={spectating ? `看 ${name(seat)} 的牌` : undefined}
             >
-              <span className="b-avatar"><Avatar name={name(seat)} isBot={Boolean(s?.isBot)} size={40} /><span className={`role role-dot ${role.cls}`}>{role.text}</span></span>
+              <span className="b-avatar"><Avatar name={name(seat)} isBot={Boolean(s?.isBot)} src={s?.avatar} size={40} /><span className={`role role-dot ${role.cls}`}>{role.text}</span></span>
               <span className="b-name">{name(seat)}</span>
               <span className="b-meta">
                 <span className="b-level">{rankName(levelRank(view.levels[seat] ?? 0, view.config))}</span>

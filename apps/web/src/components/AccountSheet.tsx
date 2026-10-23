@@ -1,6 +1,9 @@
-/** 账号：登录、注册、账号设置（改显示名字、改密码、退出登录）、管理员管理账号。 */
-import { useEffect, useState } from 'react';
+/** 账号：登录、注册、账号设置（头像、改显示名字、改密码、退出登录）、管理员管理账号。 */
+import { useEffect, useRef, useState } from 'react';
+import type { AccountInfo } from '@shengji/protocol';
 import type { GameClient } from '../ws.ts';
+import { Avatar } from '../avatar.tsx';
+import { avatarFromFile } from '../avatarUpload.ts';
 import { Sheet } from './InfoSheets.tsx';
 
 export type AccountSheetMode = 'login' | 'register' | 'settings' | 'admin';
@@ -60,7 +63,7 @@ function RegisterForm({ client, onLogin }: { client: GameClient; onLogin: () => 
       <label className="field"><span>再输一遍密码</span><input type="password" value={again} autoComplete="new-password" onChange={(e) => setAgain(e.target.value)} /></label>
       {mismatch && <div className="hint warn">两次密码不一样</div>}
       <button className="primary" type="submit" disabled={!username.trim() || !displayName.trim() || password.length < 6 || again !== password}>注册并登录</button>
-      <div className="hint">注册后换设备、清浏览器也还是你，座位跟着账号走；你的显示名字别人不能再用。已有账号？<button type="button" className="link" onClick={onLogin}>去登录</button></div>
+      <div className="hint">注册后换设备、清浏览器也还是你，座位跟着账号走；你的显示名字别人不能再用，还可以在账号设置里上传头像。已有账号？<button type="button" className="link" onClick={onLogin}>去登录</button></div>
     </form>
   );
 }
@@ -74,6 +77,7 @@ function SettingsForm({ client }: { client: GameClient }) {
   if (!account) return <div className="hint">已经退出登录</div>;
   return (
     <div className="account-form">
+      <AvatarEdit client={client} account={account} />
       <div className="hint">登录名 <b>{account.username}</b>（不能改）</div>
       <form className="account-row" onSubmit={(e) => { e.preventDefault(); client.send({ t: 'setDisplayName', displayName }); }}>
         <label className="field"><span>显示名字</span><input value={displayName} maxLength={12} onChange={(e) => setDisplayName(e.target.value)} /></label>
@@ -85,6 +89,42 @@ function SettingsForm({ client }: { client: GameClient }) {
         <button className="ghost" type="submit" disabled={!oldPassword || newPassword.length < 6}>修改密码</button>
       </form>
       <button className="ghost danger" onClick={() => client.send({ t: 'logout' })}>退出登录</button>
+    </div>
+  );
+}
+
+/** 上传、换、删头像：照片在浏览器里裁好压好再传 */
+function AvatarEdit({ client, account }: { client: GameClient; account: AccountInfo }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const pick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // 清空，下次选同一张也会触发
+    e.target.value = '';
+    if (!file) return;
+    setBusy(true);
+    setError(null);
+    try {
+      client.send({ t: 'setAvatar', data: await avatarFromFile(file) });
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="avatar-edit">
+      <Avatar name={account.displayName} isBot={false} src={account.avatar} size={72} />
+      <div className="avatar-edit-side">
+        <div className="account-btns">
+          <button className="primary" type="button" disabled={busy} onClick={() => input.current?.click()}>{busy ? '处理中…' : account.avatar ? '换头像' : '上传头像'}</button>
+          {account.avatar && <button className="ghost" type="button" disabled={busy} onClick={() => client.send({ t: 'setAvatar', data: null })}>删掉头像</button>}
+        </div>
+        <div className="hint">选一张照片就行，会从中间裁成正方形、自动压小</div>
+        {error && <div className="hint warn">{error}</div>}
+      </div>
+      <input ref={input} type="file" accept="image/*" hidden onChange={pick} />
     </div>
   );
 }
@@ -112,12 +152,13 @@ function AdminPanel({ client }: { client: GameClient }) {
             {rows.map((r) => (
               <tr key={r.username} className={r.disabled ? 'disabled' : ''}>
                 <td>{r.username}{r.isAdmin && <span className="tag">管理员</span>}{r.disabled && <span className="tag">已停用</span>}</td>
-                <td>{r.displayName}</td>
+                <td><span className="admin-name"><Avatar name={r.displayName} isBot={false} src={r.avatar} size={24} />{r.displayName}</span></td>
                 <td>{fmt(r.createdAt)}</td>
                 <td>{fmt(r.lastLoginAt)}</td>
                 <td>
                   <div className="admin-actions">
                     <button className="ghost small" onClick={() => { if (confirm(`把 ${r.username} 的密码重置成一个临时密码？`)) client.send({ t: 'adminResetPassword', username: r.username }); }}>重置密码</button>
+                    {r.avatar && <button className="ghost small danger" onClick={() => { if (confirm(`删掉 ${r.username} 的头像？`)) client.send({ t: 'adminRemoveAvatar', username: r.username }); }}>删头像</button>}
                     {r.username !== client.account?.username && (
                       <button className={`ghost small ${r.disabled ? '' : 'danger'}`} onClick={() => {
                         if (r.disabled || confirm(`停用 ${r.username}？对方会被登出，之后不能再登录，座位留着显示离线。`)) client.send({ t: 'adminSetDisabled', username: r.username, disabled: !r.disabled });
