@@ -18,3 +18,4 @@ export * from './searchbot.ts';
 export * from './endgame.ts';
 export * from './belief.ts';
 export * from './valuenet.ts';
+export * from './ddz/index.ts';
