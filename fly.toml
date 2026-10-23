@@ -8,6 +8,8 @@ primary_region = "ewr"
 [env]
   PORT = "3000"
   SNAPSHOT_DIR = "/data"
+  # 管理员的登录名（逗号分隔），登录后首页有「管理账号」
+  ADMIN_USERNAMES = "zzzhaobowen"
 
 [http_service]
   internal_port = 3000
