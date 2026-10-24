@@ -268,7 +268,7 @@ wss.on('connection', (ws: AliveSocket) => {
       }
       case 'createRoom': {
         room()?.leave(token);
-        const r = registry.createRoom(token, msg.players);
+        const r = registry.createRoom(token, msg.players, msg.rules);
         session.roomCode = r.code;
         registry.scheduleSave();
         r.join(token, session.name, ws);
@@ -324,6 +324,7 @@ wss.on('connection', (ws: AliveSocket) => {
     switch (msg.t) {
       case 'setBots': return r.setBots(token, msg.strength);
       case 'setPlayLog': return r.setPlayLog(token, msg.open);
+      case 'setRules': return r.setRules(token, msg.rules);
       case 'restartRound': return r.restartRound(token);
       case 'getReplay': return r.replayFor(token, msg.round);
       default: break;
