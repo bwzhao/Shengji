@@ -14,6 +14,10 @@ export const friendCallSchema = z.object({
   nth: z.number().int().min(1).max(3),
 });
 
+/** 四人升级的可选规则：抄底、过河，开房时选，开局前房主还能改 */
+export const roomRulesSchema = z.object({ chaodi: z.boolean(), guohe: z.boolean() });
+export type RoomRules = z.infer<typeof roomRulesSchema>;
+
 export const clientMessageSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('hello'), name: z.string().trim().min(1).max(12), token: z.string().min(8).max(64).optional() }),
   /** 账号：注册（同时登录）、登录、退出登录、改显示名字、改密码。登录名和显示名字是两回事 */
@@ -29,8 +33,8 @@ export const clientMessageSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('adminResetPassword'), username: z.string().trim().min(1).max(40) }),
   z.object({ t: z.literal('adminSetDisabled'), username: z.string().trim().min(1).max(40), disabled: z.boolean() }),
   z.object({ t: z.literal('adminRemoveAvatar'), username: z.string().trim().min(1).max(40) }),
-  /** 3 人开斗地主房间，4~6 人开升级 */
-  z.object({ t: z.literal('createRoom'), players: z.union([z.literal(3), z.literal(4), z.literal(5), z.literal(6)]) }),
+  /** 3 人开斗地主房间，4~6 人开升级；rules 只对四人升级有用，不传就都打开 */
+  z.object({ t: z.literal('createRoom'), players: z.union([z.literal(3), z.literal(4), z.literal(5), z.literal(6)]), rules: roomRulesSchema.partial().optional() }),
   z.object({ t: z.literal('listRooms') }),
   z.object({ t: z.literal('closeRoom'), code: z.string().trim().length(4).optional() }),
   /** watch：只观看，不接管机器人座位。开局后又没有机器人座位可接管时，不带 watch 也会进来观看 */
@@ -44,6 +48,8 @@ export const clientMessageSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('setBots'), strength: z.enum(['normal', 'strong']) }),
   /** 房主设置出牌记录能不能看别人出的牌 */
   z.object({ t: z.literal('setPlayLog'), open: z.boolean() }),
+  /** 房主开局前改四人升级的可选规则 */
+  z.object({ t: z.literal('setRules'), rules: roomRulesSchema.partial() }),
   /** 观看者换着看某个座位的手牌 */
   z.object({ t: z.literal('watch'), seat: z.number().int().min(0).max(5) }),
   z.object({ t: z.literal('declare'), cards: cardIds }),
@@ -124,6 +130,8 @@ export interface RoomInfo {
   readonly botStrength: 'normal' | 'strong';
   /** 出牌记录能不能看别人出的牌；默认 false，只看自己的 */
   readonly playLogOpen: boolean;
+  /** 四人升级的可选规则；别的玩法为 null */
+  readonly rules: RoomRules | null;
   /** 在线、没坐下的人（开局后就是观看者）的名字 */
   readonly spectators: readonly string[];
   /** 自己的座位，未坐下为 null */
@@ -139,6 +147,8 @@ export interface RoomSummary {
   readonly started: boolean;
   readonly round: number;
   readonly phase: string | null;
+  /** 四人升级的可选规则；别的玩法为 null */
+  readonly rules: RoomRules | null;
   readonly humans: number;
   readonly humansOnline: number;
   readonly bots: number;

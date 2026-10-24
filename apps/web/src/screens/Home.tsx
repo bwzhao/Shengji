@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
+import type { RoomRules } from '@shengji/protocol';
 import type { GameClient } from '../ws.ts';
 import { buildTime } from '../pwa.ts';
 import { AccountSheet, type AccountSheetMode } from '../components/AccountSheet.tsx';
 import { Avatar } from '../avatar.tsx';
+import { RulesPicker } from '../components/RulesPicker.tsx';
 
 /** 开房可选的玩法：人数决定玩法 */
 const MODES: readonly { players: 3 | 4 | 5 | 6; label: string }[] = [
@@ -12,11 +14,36 @@ const MODES: readonly { players: 3 | 4 | 5 | 6; label: string }[] = [
   { players: 6, label: '找 2 个朋友' },
 ];
 
+const RULES_KEY = 'shengji.rules';
+
+/** 上次开四人局选的规则，没有就都打开 */
+function loadRules(): RoomRules {
+  try {
+    const saved = JSON.parse(localStorage.getItem(RULES_KEY) ?? '{}') as Partial<RoomRules>;
+    return { chaodi: saved.chaodi !== false, guohe: saved.guohe !== false };
+  } catch {
+    return { chaodi: true, guohe: true };
+  }
+}
+
+/** 房间列表里只写关掉的规则 */
+function rulesOff(rules: RoomRules | null): string {
+  if (!rules) return '';
+  const off = [!rules.chaodi && '不抄底', !rules.guohe && '不过河'].filter(Boolean);
+  return off.length ? ` · ${off.join('、')}` : '';
+}
+
 export function Home({ client }: { client: GameClient }) {
   const [name, setName] = useState(client.name);
   const [code, setCode] = useState(() => (new URLSearchParams(location.search).get('room') ?? '').toUpperCase().slice(0, 4));
   const [players, setPlayers] = useState<3 | 4 | 5 | 6>(6);
   const [sheet, setSheet] = useState<AccountSheetMode | null>(null);
+  const [rules, setRulesState] = useState<RoomRules>(loadRules);
+  const setRule = (k: keyof RoomRules, v: boolean) => {
+    const next = { ...rules, [k]: v };
+    setRulesState(next);
+    try { localStorage.setItem(RULES_KEY, JSON.stringify(next)); } catch { /* 忽略 */ }
+  };
   const ready = name.trim().length > 0;
   // 登录、改显示名字、退出登录后名字跟着变
   useEffect(() => { setName(client.name); }, [client.name]);
@@ -96,7 +123,8 @@ export function Home({ client }: { client: GameClient }) {
               ))}
             </div>
             <div className="hint">{players === 3 ? '一副牌，每人 17 张，留 3 张底牌。叫 1、2、3 分抢地主，地主拿底牌先出，两个农民一伙。炸弹、王炸、春天翻倍，一直打，累计积分。' : players === 4 ? '两副牌，每人 25 张，底牌 8 张，40 分一级、80 分下庄，对家固定一队。从 2 打到 A，5、10、K 必打且庄上过（停在这几级时要坐庄守住才能往上升），在 A 上坐庄守住才赢。' : '三副牌，找朋友：庄家扣底后叫朋友牌，谁打出谁就是自己人。'}</div>
-            <button className="primary" disabled={!ready} onClick={() => { ensureName(); setTimeout(() => client.send({ t: 'createRoom', players }), 50); }}>
+            {players === 4 && <RulesPicker rules={rules} onChange={setRule} />}
+            <button className="primary" disabled={!ready} onClick={() => { ensureName(); setTimeout(() => client.send({ t: 'createRoom', players, ...(players === 4 ? { rules } : {}) }), 50); }}>
               创建房间
             </button>
           </div>
@@ -134,7 +162,7 @@ export function Home({ client }: { client: GameClient }) {
                     </div>
                   </div>
                   <div className="room-main">
-                    <span className="room-meta">{r.players} 人 · {phaseText(r)}</span>
+                    <span className="room-meta">{r.players} 人 · {phaseText(r)}{rulesOff(r.rules)}</span>
                     <span className="room-meta">房主 {r.hostName}</span>
                     <span className="room-names">{r.names.join('、')}{r.bots ? `${r.names.length ? '、' : ''}机器人×${r.bots}` : ''}{r.humansOnline < r.humans ? ` · ${r.humans - r.humansOnline} 人离线` : ''}{r.spectators > 0 ? ` · ${r.spectators} 人观看` : ''}</span>
                   </div>

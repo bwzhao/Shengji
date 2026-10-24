@@ -86,6 +86,10 @@ b { font-weight: 700; }
 .seat-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .lobby-actions { display: flex; flex-direction: column; gap: 10px; align-items: stretch; }
 .lobby-settings { display: flex; flex-direction: column; gap: 18px; }
+.rules { display: flex; flex-direction: column; gap: 8px; }
+.rule-row { display: flex; align-items: center; gap: 10px; }
+.rule-name { flex: 0 0 auto; width: 2.6em; font-weight: 600; color: var(--ink-2); }
+.rule-row .seg { flex: 1; min-width: 0; }
 
 /* 电脑上首页和房间页放宽成两栏：首页左边开房和加入、右边房间列表；房间页左边房间码和设置、右边座位 */
 @media (min-width: 900px) {

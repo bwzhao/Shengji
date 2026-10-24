@@ -27,12 +27,12 @@ export class DdzRoom extends BaseRoom {
     return this.state !== null;
   }
 
-  protected gameInfo(): Pick<RoomInfo, 'botStrength' | 'playLogOpen'> {
-    return { botStrength: 'normal', playLogOpen: true };
+  protected gameInfo(): Pick<RoomInfo, 'botStrength' | 'playLogOpen' | 'rules'> {
+    return { botStrength: 'normal', playLogOpen: true, rules: null };
   }
 
-  protected gameSummary(): Pick<RoomSummary, 'round' | 'phase'> {
-    return { round: this.state?.round ?? 0, phase: this.state?.phase ?? null };
+  protected gameSummary(): Pick<RoomSummary, 'round' | 'phase' | 'rules'> {
+    return { round: this.state?.round ?? 0, phase: this.state?.phase ?? null, rules: null };
   }
 
   protected seatsChanged(): void {

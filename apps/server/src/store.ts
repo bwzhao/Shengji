@@ -2,7 +2,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DdzState, GameState } from '@shengji/engine';
-import type { GameKind, RoundReplay } from '@shengji/protocol';
+import type { GameKind, RoomRules, RoundReplay } from '@shengji/protocol';
 
 export interface RoomSnapshot {
   readonly code: string;
@@ -22,6 +22,8 @@ export interface RoomSnapshot {
   readonly botStrength?: 'normal' | 'strong';
   /** 旧存档里没有，按锁住处理 */
   readonly playLogOpen?: boolean;
+  /** 四人升级的可选规则；旧存档里没有，按都打开 */
+  readonly rules?: RoomRules;
 }
 
 export interface SessionSnapshot {

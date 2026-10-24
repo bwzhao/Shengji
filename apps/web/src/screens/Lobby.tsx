@@ -1,5 +1,6 @@
 import type { GameClient } from '../ws.ts';
 import { Avatar } from '../avatar.tsx';
+import { RulesPicker } from '../components/RulesPicker.tsx';
 
 export function Lobby({ client }: { client: GameClient }) {
   const room = client.room!;
@@ -39,6 +40,13 @@ export function Lobby({ client }: { client: GameClient }) {
         </div>
         {room.game !== 'doudizhu' && (
           <div className="lobby-settings">
+            {room.rules && (
+              <div className="panel bots-panel">
+                <div className="panel-title">规则</div>
+                <RulesPicker rules={room.rules} disabled={!room.youAreHost} onChange={(k, v) => client.send({ t: 'setRules', rules: { [k]: v } })} />
+                {!room.youAreHost && <div className="hint">只有房主能改。</div>}
+              </div>
+            )}
             <div className="panel bots-panel">
               <div className="panel-title">机器人</div>
               <div className="seg">

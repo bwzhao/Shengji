@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import type { BaseRoom } from './baseRoom.ts';
 import { DdzRoom } from './ddzRoom.ts';
 import { Room, defaultRoomOptions, type RoomOptions } from './room.ts';
+import type { RoomRules } from '@shengji/protocol';
 import type { Snapshot, Store } from './store.ts';
 
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ';
@@ -83,9 +84,9 @@ export class Registry {
     }
   }
 
-  /** 3 人开斗地主，4~6 人开升级 */
-  createRoom(hostToken: string, players: 3 | 4 | 5 | 6): BaseRoom {
-    const room = players === 3 ? new DdzRoom(this.newCode(), hostToken, this.roomOptions) : new Room(this.newCode(), players, hostToken, this.roomOptions);
+  /** 3 人开斗地主，4~6 人开升级；rules 是四人升级的抄底、过河 */
+  createRoom(hostToken: string, players: 3 | 4 | 5 | 6, rules?: Partial<RoomRules>): BaseRoom {
+    const room = players === 3 ? new DdzRoom(this.newCode(), hostToken, this.roomOptions) : new Room(this.newCode(), players, hostToken, this.roomOptions, rules);
     this.attach(room);
     this.rooms.set(room.code, room);
     this.scheduleSave();

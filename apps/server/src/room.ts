@@ -3,7 +3,7 @@ import {
   applyAction, createGame, currentTurn, defaultConfig, waitingSeats, LEVEL_SEQUENCE, restartRound, smartAction, smartDeclare, spectatorView, tuneForMode, viewFor,
   type Action, type GameConfig, type GameEvent, type GameState, type PlayerView, type Seat,
 } from '@shengji/engine';
-import type { RoomInfo, RoomSummary, RoundReplay } from '@shengji/protocol';
+import type { RoomInfo, RoomRules, RoomSummary, RoundReplay } from '@shengji/protocol';
 import { BaseRoom } from './baseRoom.ts';
 import type { RoomSnapshot } from './store.ts';
 import { getSearchPool } from './searchPool.ts';
@@ -33,13 +33,14 @@ export const defaultRoomOptions: RoomOptions = { dealIntervalMs: 150, grabDealIn
 
 export class Room extends BaseRoom {
   readonly game = 'shengji' as const;
-  readonly config: GameConfig;
   state: GameState | null = null;
   /** 最近几局的操作日志，用于回放 */
   roundLogs: RoundReplay[] = [];
   botStrength: 'normal' | 'strong' = 'strong';
   /** 出牌记录能不能看别人出的牌；默认锁住，只看自己的，房主可以打开 */
   playLogOpen = false;
+  /** 四人升级的可选规则（抄底、过河），开房时选，开局前房主还能改；五、六人没有这两条 */
+  rules: RoomRules | null;
   /** 正在进行的异步搜索的序号，用来丢弃过期结果 */
   private searchEpoch = 0;
   private dealTimer: NodeJS.Timeout | null = null;
@@ -65,18 +66,24 @@ export class Room extends BaseRoom {
   private autoTimer: NodeJS.Timeout | null = null;
   private readonly opts: RoomOptions;
 
-  constructor(code: string, players: 4 | 5 | 6, hostToken: string, opts: RoomOptions = defaultRoomOptions) {
+  constructor(code: string, players: 4 | 5 | 6, hostToken: string, opts: RoomOptions = defaultRoomOptions, rules?: Partial<RoomRules>) {
     super(code, players, hostToken);
-    this.config = defaultConfig(players);
+    this.rules = players === 4 ? { chaodi: rules?.chaodi ?? true, guohe: rules?.guohe ?? true } : null;
     this.opts = opts;
   }
 
-  protected gameInfo(): Pick<RoomInfo, 'botStrength' | 'playLogOpen'> {
-    return { botStrength: this.botStrength, playLogOpen: this.playLogOpen };
+  /** 下一次开局用的规则；开局后牌局里存着自己的一份 */
+  get config(): GameConfig {
+    const base = defaultConfig(this.playerCount as 4 | 5 | 6);
+    return this.rules ? { ...base, ...this.rules } : base;
   }
 
-  protected gameSummary(): Pick<RoomSummary, 'round' | 'phase'> {
-    return { round: this.state?.round ?? 0, phase: this.state?.phase ?? null };
+  protected gameInfo(): Pick<RoomInfo, 'botStrength' | 'playLogOpen' | 'rules'> {
+    return { botStrength: this.botStrength, playLogOpen: this.playLogOpen, rules: this.rules };
+  }
+
+  protected gameSummary(): Pick<RoomSummary, 'round' | 'phase' | 'rules'> {
+    return { round: this.state?.round ?? 0, phase: this.state?.phase ?? null, rules: this.rules };
   }
 
   protected seatsChanged(): void {
@@ -109,11 +116,13 @@ export class Room extends BaseRoom {
       roundLogs: this.roundLogs,
       botStrength: this.botStrength,
       playLogOpen: this.playLogOpen,
+      rules: this.rules ?? undefined,
     };
   }
 
   static fromSnapshot(snap: RoomSnapshot, opts: RoomOptions): Room {
-    const room = new Room(snap.code, snap.players as 4 | 5 | 6, snap.hostToken, opts);
+    // 旧存档里没有规则，按都打开（当时四人升级就是这样）
+    const room = new Room(snap.code, snap.players as 4 | 5 | 6, snap.hostToken, opts, snap.rules);
     snap.seats.forEach((s, i) => { room.seats[i] = s ? { token: s.token, isBot: s.isBot, name: s.name } : null; });
     for (const m of snap.members) room.members.set(m.token, { token: m.token, name: m.name, socket: null });
     room.state = snap.state ? migrateDealerRule(migrateLadder(snap.state)) : snap.state;
@@ -137,6 +146,15 @@ export class Room extends BaseRoom {
   setBots(token: string, strength: 'normal' | 'strong'): void {
     if (token !== this.hostToken) return this.error(token, 'NOT_HOST', '只有房主能设置机器人');
     this.botStrength = strength;
+    this.broadcastRoom();
+  }
+
+  /** 开局前改可选规则；开局后牌局用的是开局时的规则，要回大厅才能改 */
+  setRules(token: string, rules: Partial<RoomRules>): void {
+    if (token !== this.hostToken) return this.error(token, 'NOT_HOST', '只有房主能改规则');
+    if (!this.rules) return this.error(token, 'NO_RULES', '只有四人升级能选抄底和过河');
+    if (this.started) return this.error(token, 'STARTED', '开局后不能改规则');
+    this.rules = { ...this.rules, ...rules };
     this.broadcastRoom();
   }
 

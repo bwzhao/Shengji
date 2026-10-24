@@ -60,9 +60,9 @@ export abstract class BaseRoom {
   /** 关闭房间时丢掉牌局 */
   protected abstract clearGame(): void;
   /** 房间信息里和玩法有关的部分 */
-  protected abstract gameInfo(): Pick<RoomInfo, 'botStrength' | 'playLogOpen'>;
-  /** 首页房间列表里的局数和阶段 */
-  protected abstract gameSummary(): Pick<RoomSummary, 'round' | 'phase'>;
+  protected abstract gameInfo(): Pick<RoomInfo, 'botStrength' | 'playLogOpen' | 'rules'>;
+  /** 首页房间列表里的局数、阶段和可选规则 */
+  protected abstract gameSummary(): Pick<RoomSummary, 'round' | 'phase' | 'rules'>;
 
   constructor(code: string, players: 3 | 4 | 5 | 6, hostToken: string) {
     this.code = code;
