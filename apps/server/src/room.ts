@@ -3,7 +3,7 @@ import {
   applyAction, createGame, currentTurn, defaultConfig, waitingSeats, LEVEL_SEQUENCE, restartRound, smartAction, smartDeclare, spectatorView, tuneForMode, viewFor,
   type Action, type GameConfig, type GameEvent, type GameState, type PlayerView, type Seat,
 } from '@shengji/engine';
-import type { RoomInfo, RoomRules, RoomSummary, RoundReplay } from '@shengji/protocol';
+import { zaofanRuleError, type RoomInfo, type RoomRules, type RoomSummary, type RoundReplay } from '@shengji/protocol';
 import { BaseRoom } from './baseRoom.ts';
 import type { RoomSnapshot } from './store.ts';
 import { getSearchPool } from './searchPool.ts';
@@ -39,8 +39,8 @@ export class Room extends BaseRoom {
   botStrength: 'normal' | 'strong' = 'strong';
   /** 出牌记录能不能看别人出的牌；默认锁住，只看自己的，房主可以打开 */
   playLogOpen = false;
-  /** 四人升级的可选规则（抄底、过河），开房时选，开局前房主还能改；五、六人没有这两条 */
-  rules: RoomRules | null;
+  /** 可选规则：抄底、过河（只有四人局）和造反分数线，开房时选，开局前房主还能改，开局后锁住 */
+  rules: RoomRules;
   /** 正在进行的异步搜索的序号，用来丢弃过期结果 */
   private searchEpoch = 0;
   private dealTimer: NodeJS.Timeout | null = null;
@@ -68,14 +68,27 @@ export class Room extends BaseRoom {
 
   constructor(code: string, players: 4 | 5 | 6, hostToken: string, opts: RoomOptions = defaultRoomOptions, rules?: Partial<RoomRules>) {
     super(code, players, hostToken);
-    this.rules = players === 4 ? { chaodi: rules?.chaodi ?? true, guohe: rules?.guohe ?? true } : null;
+    const four = players === 4;
+    // 没选的（包括旧存档）按这个人数的默认：四人局抄底、过河都打开，造反用默认分数线
+    this.rules = {
+      chaodi: four && (rules?.chaodi ?? true),
+      guohe: four && (rules?.guohe ?? true),
+      zaofan: rules?.zaofan === undefined ? (defaultConfig(players).zaofan ?? null) : rules.zaofan,
+    };
     this.opts = opts;
+  }
+
+  /** 要改成的规则合不合理，不合理返回提示 */
+  static rulesError(players: 4 | 5 | 6, rules: Partial<RoomRules>): string | null {
+    if (players !== 4 && (rules.chaodi || rules.guohe)) return '只有四人局能选抄底和过河';
+    return rules.zaofan ? zaofanRuleError(rules.zaofan, players) : null;
   }
 
   /** 下一次开局用的规则；开局后牌局里存着自己的一份 */
   get config(): GameConfig {
-    const base = defaultConfig(this.playerCount as 4 | 5 | 6);
-    return this.rules ? { ...base, ...this.rules } : base;
+    const players = this.playerCount as 4 | 5 | 6;
+    const { chaodi, guohe, zaofan } = this.rules;
+    return { ...defaultConfig(players), ...(players === 4 ? { chaodi, guohe } : {}), zaofan: zaofan ?? undefined };
   }
 
   protected gameInfo(): Pick<RoomInfo, 'botStrength' | 'playLogOpen' | 'rules'> {
@@ -116,12 +129,12 @@ export class Room extends BaseRoom {
       roundLogs: this.roundLogs,
       botStrength: this.botStrength,
       playLogOpen: this.playLogOpen,
-      rules: this.rules ?? undefined,
+      rules: this.rules,
     };
   }
 
   static fromSnapshot(snap: RoomSnapshot, opts: RoomOptions): Room {
-    // 旧存档里没有规则，按都打开（当时四人升级就是这样）
+    // 旧存档里没有的规则按默认（当时就是这样打的）
     const room = new Room(snap.code, snap.players as 4 | 5 | 6, snap.hostToken, opts, snap.rules);
     snap.seats.forEach((s, i) => { room.seats[i] = s ? { token: s.token, isBot: s.isBot, name: s.name } : null; });
     for (const m of snap.members) room.members.set(m.token, { token: m.token, name: m.name, socket: null });
@@ -152,8 +165,9 @@ export class Room extends BaseRoom {
   /** 开局前改可选规则；开局后牌局用的是开局时的规则，要回大厅才能改 */
   setRules(token: string, rules: Partial<RoomRules>): void {
     if (token !== this.hostToken) return this.error(token, 'NOT_HOST', '只有房主能改规则');
-    if (!this.rules) return this.error(token, 'NO_RULES', '只有四人升级能选抄底和过河');
     if (this.started) return this.error(token, 'STARTED', '开局后不能改规则');
+    const err = Room.rulesError(this.playerCount as 4 | 5 | 6, rules);
+    if (err) return this.error(token, 'BAD_RULES', err);
     this.rules = { ...this.rules, ...rules };
     this.broadcastRoom();
   }

@@ -14,9 +14,28 @@ export const friendCallSchema = z.object({
   nth: z.number().int().min(1).max(3),
 });
 
-/** 四人升级的可选规则：抄底、过河，开房时选，开局前房主还能改 */
-export const roomRulesSchema = z.object({ chaodi: z.boolean(), guohe: z.boolean() });
+/** 造反的分数线：手里分数不多于 low 或不少于 high（庄家拿着底牌时不少于 dealerHigh）才能造反 */
+const zaofanScore = z.number().int().min(0).max(300);
+export const zaofanRuleSchema = z.object({ low: zaofanScore, high: zaofanScore, dealerHigh: zaofanScore });
+export type ZaofanRule = z.infer<typeof zaofanRuleSchema>;
+
+/**
+ * 升级的可选规则，开房时选，开局前房主还能改，开局后锁住。
+ * 抄底、过河只有四人局有（五、六人局固定为 false）；造反各人数都有，null 是不能造反。
+ */
+export const roomRulesSchema = z.object({ chaodi: z.boolean(), guohe: z.boolean(), zaofan: zaofanRuleSchema.nullable() });
 export type RoomRules = z.infer<typeof roomRulesSchema>;
+
+/** 造反分数线合不合理；players 决定总分（四人两副牌 200 分，五、六人三副牌 300 分） */
+export function zaofanRuleError(rule: ZaofanRule, players: 4 | 5 | 6): string | null {
+  const total = players === 4 ? 200 : 300;
+  const { low, high, dealerHigh } = rule;
+  if (![low, high, dealerHigh].every((n) => Number.isInteger(n) && n >= 0)) return '造反分数要是整数';
+  if (high <= low) return '造反的上限要比下限大';
+  if (dealerHigh < high) return '庄家（拿着底牌）的上限不能比别人低';
+  if (dealerHigh > total) return `造反分数不能超过总分 ${total}`;
+  return null;
+}
 
 export const clientMessageSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('hello'), name: z.string().trim().min(1).max(12), token: z.string().min(8).max(64).optional() }),
@@ -33,7 +52,7 @@ export const clientMessageSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('adminResetPassword'), username: z.string().trim().min(1).max(40) }),
   z.object({ t: z.literal('adminSetDisabled'), username: z.string().trim().min(1).max(40), disabled: z.boolean() }),
   z.object({ t: z.literal('adminRemoveAvatar'), username: z.string().trim().min(1).max(40) }),
-  /** 3 人开斗地主房间，4~6 人开升级；rules 只对四人升级有用，不传就都打开 */
+  /** 3 人开斗地主房间，4~6 人开升级；rules 只对升级有用，不传的按这个人数的默认 */
   z.object({ t: z.literal('createRoom'), players: z.union([z.literal(3), z.literal(4), z.literal(5), z.literal(6)]), rules: roomRulesSchema.partial().optional() }),
   z.object({ t: z.literal('listRooms') }),
   z.object({ t: z.literal('closeRoom'), code: z.string().trim().length(4).optional() }),
@@ -48,7 +67,7 @@ export const clientMessageSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('setBots'), strength: z.enum(['normal', 'strong']) }),
   /** 房主设置出牌记录能不能看别人出的牌 */
   z.object({ t: z.literal('setPlayLog'), open: z.boolean() }),
-  /** 房主开局前改四人升级的可选规则 */
+  /** 房主开局前改升级的可选规则 */
   z.object({ t: z.literal('setRules'), rules: roomRulesSchema.partial() }),
   /** 观看者换着看某个座位的手牌 */
   z.object({ t: z.literal('watch'), seat: z.number().int().min(0).max(5) }),
@@ -130,7 +149,7 @@ export interface RoomInfo {
   readonly botStrength: 'normal' | 'strong';
   /** 出牌记录能不能看别人出的牌；默认 false，只看自己的 */
   readonly playLogOpen: boolean;
-  /** 四人升级的可选规则；别的玩法为 null */
+  /** 升级的可选规则；斗地主为 null */
   readonly rules: RoomRules | null;
   /** 在线、没坐下的人（开局后就是观看者）的名字 */
   readonly spectators: readonly string[];
@@ -147,7 +166,7 @@ export interface RoomSummary {
   readonly started: boolean;
   readonly round: number;
   readonly phase: string | null;
-  /** 四人升级的可选规则；别的玩法为 null */
+  /** 升级的可选规则；斗地主为 null */
   readonly rules: RoomRules | null;
   readonly humans: number;
   readonly humansOnline: number;

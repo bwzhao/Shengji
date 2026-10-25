@@ -84,7 +84,7 @@ export class Registry {
     }
   }
 
-  /** 3 人开斗地主，4~6 人开升级；rules 是四人升级的抄底、过河 */
+  /** 3 人开斗地主，4~6 人开升级；rules 是升级的可选规则（抄底、过河、造反分数线） */
   createRoom(hostToken: string, players: 3 | 4 | 5 | 6, rules?: Partial<RoomRules>): BaseRoom {
     const room = players === 3 ? new DdzRoom(this.newCode(), hostToken, this.roomOptions) : new Room(this.newCode(), players, hostToken, this.roomOptions, rules);
     this.attach(room);

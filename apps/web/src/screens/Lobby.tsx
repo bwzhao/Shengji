@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react';
+import { zaofanRuleError, type RoomRules } from '@shengji/protocol';
 import type { GameClient } from '../ws.ts';
 import { Avatar } from '../avatar.tsx';
 import { RulesPicker } from '../components/RulesPicker.tsx';
@@ -5,6 +7,18 @@ import { RulesPicker } from '../components/RulesPicker.tsx';
 export function Lobby({ client }: { client: GameClient }) {
   const room = client.room!;
   const full = room.seats.every((s) => s);
+  // 房主改出不合理的造反分数线时先留在自己这里（下面显示提示），改对了再发出去
+  const [draftRules, setDraftRules] = useState<RoomRules | null>(null);
+  const rulesKey = JSON.stringify(room.rules);
+  useEffect(() => { setDraftRules(null); }, [rulesKey]);
+  const shownRules = draftRules ?? room.rules;
+  const changeRules = (patch: Partial<RoomRules>) => {
+    if (!shownRules) return;
+    const next = { ...shownRules, ...patch };
+    if (next.zaofan && zaofanRuleError(next.zaofan, room.players as 4 | 5 | 6)) return setDraftRules(next);
+    setDraftRules(null);
+    client.send({ t: 'setRules', rules: next });
+  };
   const shareUrl = `${location.origin}/?room=${room.code}`;
   const copy = async () => {
     try { await navigator.clipboard.writeText(`来打${room.game === 'doudizhu' ? '斗地主' : '找朋友'}：${shareUrl} 房间码 ${room.code}`); } catch { /* 忽略 */ }
@@ -40,10 +54,10 @@ export function Lobby({ client }: { client: GameClient }) {
         </div>
         {room.game !== 'doudizhu' && (
           <div className="lobby-settings">
-            {room.rules && (
+            {shownRules && (
               <div className="panel bots-panel">
                 <div className="panel-title">规则</div>
-                <RulesPicker rules={room.rules} disabled={!room.youAreHost} onChange={(k, v) => client.send({ t: 'setRules', rules: { [k]: v } })} />
+                <RulesPicker players={room.players as 4 | 5 | 6} rules={shownRules} disabled={!room.youAreHost} onChange={changeRules} />
                 {!room.youAreHost && <div className="hint">只有房主能改。</div>}
               </div>
             )}

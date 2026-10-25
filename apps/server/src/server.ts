@@ -267,6 +267,8 @@ wss.on('connection', (ws: AliveSocket) => {
         return send(ws, { t: 'rooms', rooms });
       }
       case 'createRoom': {
+        const rulesErr = msg.players !== 3 && msg.rules ? Room.rulesError(msg.players, msg.rules) : null;
+        if (rulesErr) return send(ws, { t: 'error', code: 'BAD_RULES', message: rulesErr });
         room()?.leave(token);
         const r = registry.createRoom(token, msg.players, msg.rules);
         session.roomCode = r.code;
