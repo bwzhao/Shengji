@@ -90,6 +90,11 @@ b { font-weight: 700; }
 .rule-row { display: flex; align-items: center; gap: 10px; }
 .rule-name { flex: 0 0 auto; width: 2.6em; font-weight: 600; color: var(--ink-2); }
 .rule-row .seg { flex: 1; min-width: 0; }
+.zaofan-scores { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding-left: calc(2.6em + 10px); font-size: 13px; color: var(--ink-2); }
+.zaofan-scores label { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+input.score { width: 64px; background: rgba(0,0,0,.22); border: 1px solid var(--line); color: var(--ink); border-radius: 10px; padding: 6px 8px; font-size: 15px; text-align: center; outline: none; }
+input.score:focus { border-color: var(--gold); }
+input.score:disabled { opacity: .6; }
 
 /* 电脑上首页和房间页放宽成两栏：首页左边开房和加入、右边房间列表；房间页左边房间码和设置、右边座位 */
 @media (min-width: 900px) {

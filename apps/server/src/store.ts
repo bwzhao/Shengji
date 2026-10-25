@@ -22,8 +22,8 @@ export interface RoomSnapshot {
   readonly botStrength?: 'normal' | 'strong';
   /** 旧存档里没有，按锁住处理 */
   readonly playLogOpen?: boolean;
-  /** 四人升级的可选规则；旧存档里没有，按都打开 */
-  readonly rules?: RoomRules;
+  /** 升级的可选规则；旧存档里没有或缺几项（比如造反分数线），缺的按默认 */
+  readonly rules?: Partial<RoomRules>;
 }
 
 export interface SessionSnapshot {
