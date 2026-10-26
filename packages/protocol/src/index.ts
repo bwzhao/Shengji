@@ -95,7 +95,8 @@ export const clientMessageSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('restartRound') }),
   z.object({ t: z.literal('abortGame') }),
   z.object({ t: z.literal('getReplay'), round: z.number().int().min(1) }),
-  z.object({ t: z.literal('ping') }),
+  /** at：客户端发出时的时间，服务端原样带回，用来算延迟；心跳探测不带 */
+  z.object({ t: z.literal('ping'), at: z.number().finite().optional() }),
 ]);
 
 /** 一局的回放：从发牌前的完整状态出发，依次重放操作即可复现。 */
@@ -202,7 +203,7 @@ export type ServerMessage =
   | { readonly t: 'error'; readonly code: string; readonly message: string }
   | { readonly t: 'replay'; readonly replay: RoundReplay }
   | { readonly t: 'rooms'; readonly rooms: readonly RoomSummary[] }
-  | { readonly t: 'pong' };
+  | { readonly t: 'pong'; readonly at?: number };
 
 /** GET /api/server-info：lan 是局域网版里别人能用的访问地址（可能有几个网卡），线上为 null */
 export interface ServerInfo {

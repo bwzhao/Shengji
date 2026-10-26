@@ -7,6 +7,7 @@ import {
 import type { ClientMessage } from '@shengji/protocol';
 import { CardRow, CardView } from '../components/CardView.tsx';
 import { Avatar } from '../avatar.tsx';
+import { Latency } from '../components/Latency.tsx';
 import { sound } from '../sound.ts';
 import type { GameClient } from '../ws.ts';
 
@@ -141,6 +142,7 @@ export function DdzTable({ client }: { client: GameClient }) {
         {(spectating || room.spectators.length > 0) && (
           <span className="tb-item" title={room.spectators.join('、')}>{spectating ? '观看中' : `${room.spectators.length} 人观看`}</span>
         )}
+        <Latency ms={client.latency} className="tb-item tb-ping" />
         <button className={`tb-item tb-click tb-sound ${soundOn ? '' : 'off'}`} onClick={() => setSoundOn(sound.toggle())} aria-label="音效">{soundOn ? '🔊 音效' : '🔇 静音'}</button>
         <button className={`tb-menu ${menuOpen ? 'open' : ''}`} onClick={() => setMenuOpen((v) => !v)} aria-label="菜单" aria-expanded={menuOpen}>⋯ 菜单</button>
       </header>

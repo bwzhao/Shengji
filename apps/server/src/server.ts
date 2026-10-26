@@ -178,7 +178,7 @@ wss.on('connection', (ws: AliveSocket) => {
       return signIn(r.account);
     }
 
-    if (!token && msg.t === 'ping') return send(ws, { t: 'pong' });
+    if (!token && msg.t === 'ping') return send(ws, { t: 'pong', at: msg.at });
     if (!token) return send(ws, { t: 'error', code: 'NO_SESSION', message: '请先发送 hello' });
     const session = registry.sessions.get(token);
     if (!session) return send(ws, { t: 'error', code: 'NO_SESSION', message: '会话已失效，请刷新' });
@@ -186,7 +186,7 @@ wss.on('connection', (ws: AliveSocket) => {
 
     const account = session.accountId ? accounts.get(session.accountId) : undefined;
     switch (msg.t) {
-      case 'ping': return send(ws, { t: 'pong' });
+      case 'ping': return send(ws, { t: 'pong', at: msg.at });
       case 'logout': {
         if (!account) return send(ws, { t: 'error', code: 'NOT_LOGGED_IN', message: '你还没有登录' });
         // 这台设备回到首页当游客；牌局中座位留给账号（显示离线），开局前和断线一样让座
