@@ -504,6 +504,7 @@ A/B 结果（`pnpm sim -- --smart ab`，偶数座位新版、奇数座位旧版�
 - 解压后双击 `Start.bat`（Windows）或 `Start.command`（Mac）：找一个空闲端口（从 3000 起），存档和账号放在同目录的 `data/`，自动用浏览器打开 localhost，窗口里列出局域网地址。程序没有签名，第一次打开会被系统拦一下，README 里写了怎么放行（Mac 的启动脚本会去掉解压文件的隔离标记）。
 - `GET /api/server-info` 返回 `{ lan }`：局域网版是这台电脑的局域网地址（每次现查，私网段排前面），线上为 null。局域网版首页显示「局域网模式」面板和地址二维码；房间页的邀请二维码和「复制邀请」在房主用 localhost 打开时换成局域网地址。
 - 局域网版是 http，没有 service worker（不能装成 App），复制邀请退回 `execCommand('copy')`。账号和线上版分开。
+- 没有现成 WiFi 时（飞机上、没信号的地方）：README 里写了手机热点、随身路由器，以及用 Mac「互联网共享」（来源选雷雳网桥、共享给 Wi-Fi）自己开 WiFi 的步骤。Mac 这个办法和系统版本有关，没在真机上验证过，README 里提醒先在家试。
 - 本地打包试用：`pnpm lan` 打到 `dist-lan/shengji-lan`（不带 Node，用 `node dist-lan/shengji-lan/app/lan.mjs` 跑）。
 
 ## 5. 测试
