@@ -6,6 +6,7 @@ import { AccountSheet, type AccountSheetMode } from '../components/AccountSheet.
 import { Avatar } from '../avatar.tsx';
 import { defaultZaofan, RulesPicker, rulesNote } from '../components/RulesPicker.tsx';
 import { QrCode } from '../components/QrCode.tsx';
+import { Latency } from '../components/Latency.tsx';
 import { useServerInfo } from '../serverInfo.ts';
 
 /** 开房可选的玩法：人数决定玩法 */
@@ -200,7 +201,7 @@ export function Home({ client }: { client: GameClient }) {
           )}
         </div>
         <div className="build">
-          版本 {buildTime}
+          版本 {buildTime} · 网络延迟 <Latency ms={client.latency} />
           {info && !info.lan && <> · <a href={LAN_DOWNLOAD} target="_blank" rel="noreferrer">下载局域网版</a>（没有外网时，一台电脑开服务器，同一个 WiFi 一起玩）</>}
         </div>
       </div>

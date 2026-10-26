@@ -4,6 +4,7 @@ import type { DdzEvent, DdzView, GameEvent, PlayerView } from '@shengji/engine';
 import type { AccountInfo, AdminAccountRow, ClientMessage, RoomInfo, RoomSummary, RoundReplay, ServerMessage } from '@shengji/protocol';
 import { checkForUpdate } from './pwa.ts';
 import { connectSocket } from './connection.ts';
+import { LATENCY_INTERVAL_MS, LATENCY_SAMPLES, medianLatency } from './latency.ts';
 
 export interface Toast {
   readonly id: number;
@@ -40,6 +41,8 @@ export interface GameClient {
   readonly replay: RoundReplay | null;
   /** 服务器上现有的房间，进入首页后定时刷新 */
   readonly rooms: readonly RoomSummary[] | null;
+  /** 到服务器一个来回的毫秒数（最近几次的中位数）；没连上或还没量到为 null */
+  readonly latency: number | null;
   send(msg: ClientMessage): void;
   closeReplay(): void;
   setName(name: string): void;
@@ -77,6 +80,8 @@ export function useGameClient(): GameClient {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [replay, setReplay] = useState<RoundReplay | null>(null);
   const [rooms, setRooms] = useState<readonly RoomSummary[] | null>(null);
+  const [latency, setLatency] = useState<number | null>(null);
+  const latencySamples = useRef<number[]>([]);
   const connectionRef = useRef<ReturnType<typeof connectSocket> | null>(null);
   const nameRef = useRef(name);
   const toastId = useRef(0);
@@ -90,16 +95,19 @@ export function useGameClient(): GameClient {
   useEffect(() => {
     const connection = connectSocket({
       url: wsUrl,
-      onConnected: setConnected,
+      onConnected: (c) => {
+        setConnected(c);
+        // 断线重连后重新量
+        if (!c) { latencySamples.current = []; setLatency(null); }
+      },
       onOpen: () => {
         if (nameRef.current) {
           const token = localStorage.getItem(TOKEN_KEY) ?? undefined;
           connection.send(JSON.stringify({ t: 'hello', name: nameRef.current, token }));
           if (localStorage.getItem(PENDING_LEAVE_KEY)) connection.send(JSON.stringify({ t: 'leaveRoom' }));
-        } else {
-          // Keep the unnamed login screen alive too; ping needs no session.
-          connection.send(JSON.stringify({ t: 'ping' }));
         }
+        // 连上就先量一次延迟；还没填名字时也靠它让服务端回话，ping 不需要会话
+        ping();
       },
       onMessage: (data) => {
         const msg = JSON.parse(data) as ServerMessage;
@@ -152,12 +160,22 @@ export function useGameClient(): GameClient {
             break;
           case 'replay': setReplay(msg.replay); break;
           case 'rooms': setRooms(msg.rooms); break;
-          case 'pong': break;
+          case 'pong':
+            if (msg.at !== undefined) {
+              latencySamples.current = [...latencySamples.current, performance.now() - msg.at].slice(-LATENCY_SAMPLES);
+              setLatency(medianLatency(latencySamples.current));
+            }
+            break;
         }
       },
     });
     connectionRef.current = connection;
-    return () => { connectionRef.current = null; connection.stop(); };
+    // 量延迟：页面在前台时每隔几秒发一个带时间的 ping，服务端原样带回时间
+    function ping() {
+      connection.send(JSON.stringify({ t: 'ping', at: performance.now() }));
+    }
+    const pinger = setInterval(() => { if (document.visibilityState === 'visible') ping(); }, LATENCY_INTERVAL_MS);
+    return () => { clearInterval(pinger); connectionRef.current = null; connection.stop(); };
   }, []);
 
   const send = (msg: ClientMessage) => {
@@ -189,7 +207,7 @@ export function useGameClient(): GameClient {
   };
 
   return {
-    connected, name, account, adminAccounts, tempPassword, room, view, events, ddzView, ddzEvents, declareDeadline, declarePassed, chaodiDeadline, guoheDeadline, zaofanDeadline, zaofanPassed, toasts, replay, rooms, send, setName,
+    connected, name, account, adminAccounts, tempPassword, room, view, events, ddzView, ddzEvents, declareDeadline, declarePassed, chaodiDeadline, guoheDeadline, zaofanDeadline, zaofanPassed, toasts, replay, rooms, latency, send, setName,
     closeReplay: () => setReplay(null),
     clearTempPassword: () => setTempPassword(null),
     dismissToast: (id) => setToasts((t) => t.filter((x) => x.id !== id)),

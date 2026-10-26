@@ -4,6 +4,7 @@ import type { GameClient } from '../ws.ts';
 import { Avatar } from '../avatar.tsx';
 import { RulesPicker } from '../components/RulesPicker.tsx';
 import { QrCode } from '../components/QrCode.tsx';
+import { Latency } from '../components/Latency.tsx';
 import { copyText, inviteOrigin, useServerInfo } from '../serverInfo.ts';
 
 export function Lobby({ client }: { client: GameClient }) {
@@ -95,6 +96,7 @@ export function Lobby({ client }: { client: GameClient }) {
             <div className="hint">等待房主开始</div>
           )}
           <button className="ghost" onClick={() => client.send({ t: 'leaveRoom' })}>离开房间</button>
+          <span className="lobby-ping">网络延迟 <Latency ms={client.latency} /></span>
           {room.youAreHost && (
             <button className="ghost danger" onClick={() => { if (confirm(`关闭房间 ${room.code}？所有人都会回到首页。`)) client.send({ t: 'closeRoom' }); }}>关闭房间</button>
           )}

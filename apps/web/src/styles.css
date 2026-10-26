@@ -132,6 +132,16 @@ input.score:disabled { opacity: .6; }
 .tb-click:active { transform: translateY(1px); background: rgba(243,210,130,.28); }
 .tb-click .tb-action { background: var(--gold); color: var(--gold-ink); border-radius: 999px; font-size: .85em; font-weight: 800; padding: 1px 7px; margin-left: 2px; line-height: 1.35; }
 .tb-sound { margin-left: auto; padding-right: 8px; font-weight: 700; }
+.latency { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.latency-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.latency.good .latency-dot { background: #5fd38a; }
+.latency.ok .latency-dot { background: #e0b052; }
+.latency.bad .latency-dot { background: #ff6b5e; }
+.latency.bad { color: #ff9a8f; }
+/* 延迟靠右，音效紧挨着它 */
+.tb-ping { margin-left: auto; }
+.tb-ping + .tb-sound { margin-left: 0; }
+.lobby-ping { align-self: center; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
 .tb-sound.off { color: var(--muted); border-color: var(--line-2); background: rgba(255,255,255,.06); }
 /* 出牌记录 */
 .play-log { margin: 8px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
