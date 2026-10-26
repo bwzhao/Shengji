@@ -1,4 +1,4 @@
-# 合并到 main 后：先跑 ci.yml 的检查，通过后部署到 Fly.io。PR 上不跑这个文件。
+# 合并到 main 后：先跑 ci.yml 的检查，通过后部署到 Fly.io，同时打包局域网版发布到 Release「lan-latest」。PR 上不跑这个文件。
 # 部署要用仓库 secret FLY_API_TOKEN，由 `fly tokens create deploy -a shengji-zhaopengyou` 生成。
 name: Deploy
 
@@ -33,3 +33,68 @@ jobs:
       - run: flyctl deploy --remote-only --ha=false
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+  lan:
+    name: 打包局域网版
+    needs: check
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # 要往 Release 上传文件
+    permissions:
+      contents: write
+    # 连着合并几次时只发最后一次
+    concurrency:
+      group: lan-release
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: corepack enable && corepack prepare pnpm@12 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      # 每个平台：下载同版本的官方 Node（Mac 版是苹果公证过的），和打包好的服务端、前端、模型一起压成 zip
+      - name: 打包各平台
+        run: |
+          set -euo pipefail
+          V=$(node -v)
+          mkdir -p out dl
+          pack() {
+            local name=$1 dist=$2 plat=$3 bin
+            if [ "$plat" = win ]; then
+              curl -fsSL "https://nodejs.org/dist/$V/$dist.zip" -o "dl/$dist.zip"
+              unzip -q -o "dl/$dist.zip" "$dist/node.exe" -d dl
+              bin="dl/$dist/node.exe"
+            else
+              curl -fsSL "https://nodejs.org/dist/$V/$dist.tar.xz" | tar -xJ -C dl "$dist/bin/node"
+              bin="dl/$dist/bin/node"
+            fi
+            node apps/server/lan/build.mjs --out "out/shengji-lan-$name" --platform "$plat" --node "$bin"
+            (cd out && zip -qr "shengji-lan-$name.zip" "shengji-lan-$name")
+          }
+          pack windows-x64 "node-$V-win-x64" win
+          pack mac-arm64 "node-$V-darwin-arm64" mac
+          pack mac-x64 "node-$V-darwin-x64" mac
+          pack linux-x64 "node-$V-linux-x64" linux
+          ls -la out/*.zip
+      # Linux 版在这台机器上真跑一下：网页、局域网地址接口、搜索 worker 都要正常
+      - name: 试跑 Linux 版
+        run: |
+          set -euo pipefail
+          cd out/shengji-lan-linux-x64
+          NO_BROWSER=1 PORT=3999 ./start.sh > ../smoke.log 2>&1 &
+          for i in $(seq 1 60); do curl -fs localhost:3999/api/server-info > /dev/null && break; sleep 1; done
+          sleep 3
+          cat ../smoke.log
+          curl -fs localhost:3999/api/server-info | grep -q '"lan":\['
+          curl -fs localhost:3999/ | grep -q 'id="root"'
+          if grep -q 'worker 启动失败\|worker 出错\|没找到机器人模型' ../smoke.log; then exit 1; fi
+          kill $! || true
+      - name: 发布到 lan-latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete lan-latest --cleanup-tag --yes || true
+          gh release create lan-latest out/*.zip --target "$GITHUB_SHA" --title "局域网版（最新）" --notes-file apps/server/lan/RELEASE.md

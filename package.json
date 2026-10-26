@@ -10,7 +10,8 @@
     "sim": "pnpm --filter @shengji/engine sim",
     "dev:server": "pnpm --filter @shengji/server dev",
     "dev:web": "pnpm --filter @shengji/web dev",
-    "start": "pnpm --filter @shengji/server start"
+    "start": "pnpm --filter @shengji/server start",
+    "lan": "pnpm build && pnpm --filter @shengji/server lan"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

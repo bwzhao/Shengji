@@ -204,6 +204,11 @@ export type ServerMessage =
   | { readonly t: 'rooms'; readonly rooms: readonly RoomSummary[] }
   | { readonly t: 'pong' };
 
+/** GET /api/server-info：lan 是局域网版里别人能用的访问地址（可能有几个网卡），线上为 null */
+export interface ServerInfo {
+  readonly lan: readonly string[] | null;
+}
+
 export function parseClientMessage(raw: string): ClientMessage | null {
   try {
     const r = clientMessageSchema.safeParse(JSON.parse(raw));
