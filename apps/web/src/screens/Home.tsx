@@ -5,6 +5,8 @@ import { buildTime } from '../pwa.ts';
 import { AccountSheet, type AccountSheetMode } from '../components/AccountSheet.tsx';
 import { Avatar } from '../avatar.tsx';
 import { defaultZaofan, RulesPicker, rulesNote } from '../components/RulesPicker.tsx';
+import { QrCode } from '../components/QrCode.tsx';
+import { useServerInfo } from '../serverInfo.ts';
 
 /** 开房可选的玩法：人数决定玩法 */
 const MODES: readonly { players: 3 | 4 | 5 | 6; label: string }[] = [
@@ -15,6 +17,8 @@ const MODES: readonly { players: 3 | 4 | 5 | 6; label: string }[] = [
 ];
 
 const RULES_KEY = 'shengji.rules';
+/** 局域网版的下载页：每次合并到 main 自动重新打包 */
+const LAN_DOWNLOAD = 'https://github.com/bwzhao/Shengji/releases/tag/lan-latest';
 
 /** 浏览器记住的开房规则：抄底、过河一份，造反分数线每个人数一份（没记的用默认） */
 interface SavedRules {
@@ -49,6 +53,7 @@ export function Home({ client }: { client: GameClient }) {
   const [players, setPlayers] = useState<3 | 4 | 5 | 6>(6);
   const [sheet, setSheet] = useState<AccountSheetMode | null>(null);
   const [saved, setSaved] = useState<SavedRules>(loadRules);
+  const info = useServerInfo();
   const rules = players === 3 ? null : rulesFor(saved, players);
   const rulesProblem = rules?.zaofan ? zaofanRuleError(rules.zaofan, players as 4 | 5 | 6) : null;
   const changeRules = (patch: Partial<RoomRules>) => {
@@ -157,6 +162,7 @@ export function Home({ client }: { client: GameClient }) {
           </div>
         </div>
         <div className="home-side">
+          {info?.lan && <LanPanel urls={info.lan} />}
           {client.name ? (
             <div className="panel">
               <div className="panel-title">服务器上的房间</div>
@@ -193,9 +199,35 @@ export function Home({ client }: { client: GameClient }) {
             </div>
           )}
         </div>
-        <div className="build">版本 {buildTime}</div>
+        <div className="build">
+          版本 {buildTime}
+          {info && !info.lan && <> · <a href={LAN_DOWNLOAD} target="_blank" rel="noreferrer">下载局域网版</a>（没有外网时，一台电脑开服务器，同一个 WiFi 一起玩）</>}
+        </div>
       </div>
       {sheet && <AccountSheet client={client} mode={sheet} onMode={setSheet} onClose={() => setSheet(null)} />}
+    </div>
+  );
+}
+
+/** 局域网版：告诉房主别人用哪个地址进来 */
+function LanPanel({ urls }: { urls: readonly string[] }) {
+  const main = urls[0];
+  return (
+    <div className="panel lan-panel">
+      <div className="panel-title">局域网模式</div>
+      {main ? (
+        <div className="lan-body">
+          <QrCode text={main} />
+          <div className="lan-text">
+            <div>其他人连上和这台电脑同一个 WiFi，用手机相机扫码，或者在浏览器打开：</div>
+            <b className="lan-url">{main}</b>
+            {urls.length > 1 && <div className="hint">打不开的话试试：{urls.slice(1).join('、')}</div>}
+            <div className="hint">不需要外网。存档和账号存在这台电脑上，和线上版分开。</div>
+          </div>
+        </div>
+      ) : (
+        <div className="hint">没找到局域网地址：检查这台电脑是不是连上了 WiFi 或网线，连好后刷新页面。</div>
+      )}
     </div>
   );
 }

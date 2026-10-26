@@ -33,7 +33,7 @@ export default defineConfig({
         // 只缓存静态资源，WebSocket 与接口不走 service worker
         globPatterns: ['**/*.{js,css,html,svg,png,jpg,mp3,woff2}'],
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/ws/, /^\/healthz/, /^\/avatar\//],
+        navigateFallbackDenylist: [/^\/ws/, /^\/healthz/, /^\/avatar\//, /^\/api\//],
         cleanupOutdatedCaches: true,
       },
     }),
@@ -43,6 +43,7 @@ export default defineConfig({
     proxy: {
       '/ws': { target: 'ws://localhost:3000', ws: true },
       '/avatar/': 'http://localhost:3000',
+      '/api/': 'http://localhost:3000',
     },
   },
 });

@@ -1,0 +1,4 @@
+# Windows 的批处理文件要用 CRLF 换行，Mac / Linux 的启动脚本用 LF
+*.bat text eol=crlf
+*.command text eol=lf
+*.sh text eol=lf

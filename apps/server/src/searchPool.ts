@@ -28,7 +28,8 @@ export class SearchPool {
   constructor(size: number) {
     for (let i = 0; i < size; i++) {
       try {
-        const w = new Worker(new URL('./searchWorker.ts', import.meta.url));
+        // 平时用 tsx 直接跑 .ts；局域网版打包后 worker 是旁边的 searchWorker.mjs
+        const w = new Worker(new URL(import.meta.url.endsWith('.ts') ? './searchWorker.ts' : './searchWorker.mjs', import.meta.url));
         w.on('message', (m: { id: number; result?: SearchBatchResult; error?: string }) => {
           const p = this.pending.get(m.id);
           if (!p) return;

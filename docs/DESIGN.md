@@ -495,6 +495,17 @@ A/B 结果（`pnpm sim -- --smart ab`，偶数座位新版、奇数座位旧版�
 - 自动部署：PR 上只跑检查（`ci.yml`：类型检查、测试、前端打包）；main 有新提交时 `deploy.yml` 先调用同一份检查，通过后 `flyctl deploy --remote-only --ha=false`（仓库 secret `FLY_API_TOKEN`）。部署重启时快照落盘，客户端几秒内自动重连，牌局接着打。
 - 环境变量只有 `PORT` 和 `SNAPSHOT_DIR`，没有秘密。
 
+### 4.1 局域网版
+
+没有外网时，在一台电脑上开服务器，同一个 WiFi（或手机热点）下的人用浏览器打开这台电脑的地址一起玩。
+
+- 下载：GitHub Release「lan-latest」（https://github.com/bwzhao/Shengji/releases/tag/lan-latest），Windows x64、Mac（苹果芯片、Intel）、Linux x64 各一个 zip。线上版首页底部有下载链接。
+- 每次合并到 main，`deploy.yml` 的「打包局域网版」任务在检查通过后重新打包：`apps/server/lan/build.mjs` 用 esbuild 把服务端（入口 `apps/server/src/lan.ts`）和搜索 worker 各打成一个 `.mjs`，带上前端、机器人模型、启动脚本和 README，再放进同版本的官方 Node 可执行文件（Mac 版是公证过的）。Linux 版会在 CI 里真跑一遍（网页、局域网地址接口、worker、模型都要正常）再发布，删掉旧 Release 重建，下载链接不变。
+- 解压后双击 `Start.bat`（Windows）或 `Start.command`（Mac）：找一个空闲端口（从 3000 起），存档和账号放在同目录的 `data/`，自动用浏览器打开 localhost，窗口里列出局域网地址。程序没有签名，第一次打开会被系统拦一下，README 里写了怎么放行（Mac 的启动脚本会去掉解压文件的隔离标记）。
+- `GET /api/server-info` 返回 `{ lan }`：局域网版是这台电脑的局域网地址（每次现查，私网段排前面），线上为 null。局域网版首页显示「局域网模式」面板和地址二维码；房间页的邀请二维码和「复制邀请」在房主用 localhost 打开时换成局域网地址。
+- 局域网版是 http，没有 service worker（不能装成 App），复制邀请退回 `execCommand('copy')`。账号和线上版分开。
+- 本地打包试用：`pnpm lan` 打到 `dist-lan/shengji-lan`（不带 Node，用 `node dist-lan/shengji-lan/app/lan.mjs` 跑）。
+
 ## 5. 测试
 
 - 引擎单元测试（vitest）：牌力比较、拖拉机识别、跟牌约束、赢墩判定、结算阶梯，全部表驱动。
@@ -557,6 +568,8 @@ A/B 结果（`pnpm sim -- --smart ab`，偶数座位新版、奇数座位旧版�
 30. 抄底和过河改成开房时的选项（2026-10-24）：四人局开房时分别选，默认都打开；开局前房主还能在大厅改、开局后锁住（2026-10-24 确认）。
 
 31. 造反分数线改成开房时的选项（2026-10-25）：四、五、六人局都能改下限、上限和庄家上限，默认还是上表的数；另外加了「不能造反」，和抄底、过河一样开局后锁住。「不能造反」和数值的合理范围是我定的。
+
+32. 局域网版和邀请二维码（2026-10-26）：用户选了「一键启动的局域网版」方案（另外两个方案是自己装 Node 跑、手机当主机）。房间页加邀请二维码，线上版也有。打包成各平台 zip 发在 GitHub Release、每次合并自动更新、首页底部放下载链接，是我定的。
 
 仍有两处是我对上述规则的解读，写进了引擎配置项，实际打起来不对再改：
 

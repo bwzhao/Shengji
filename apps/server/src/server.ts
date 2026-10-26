@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { parseClientMessage, type ServerMessage } from '@shengji/protocol';
+import { parseClientMessage, type ServerInfo, type ServerMessage } from '@shengji/protocol';
 import { Accounts, type Account } from './accounts.ts';
 import { DdzRoom } from './ddzRoom.ts';
 import { Registry } from './registry.ts';
@@ -22,6 +22,10 @@ export interface ServerOptions {
   readonly snapshotDir?: string;
   /** 管理员的登录名 */
   readonly adminUsernames?: readonly string[];
+  /** 前端打包目录；不传用仓库里的 apps/web/dist（局域网版把它放在别处） */
+  readonly webDir?: string;
+  /** 局域网版：这台电脑在局域网里的访问地址，每次问的时候现查（换了 WiFi 会变）。线上不传 */
+  readonly lanUrls?: () => string[];
 }
 
 export interface RunningServer {
@@ -33,10 +37,12 @@ export interface RunningServer {
 
 export async function startServer(options: ServerOptions): Promise<RunningServer> {
 const here = dirname(fileURLToPath(import.meta.url));
-const webDist = resolve(here, '../../web/dist');
+const webDist = options.webDir ?? resolve(here, '../../web/dist');
 
 const app = Fastify({ logger: false });
 app.get('/healthz', async () => ({ ok: true }));
+/** 网页要知道是不是局域网版、别人该用哪个地址进来（邀请二维码用） */
+app.get('/api/server-info', async (): Promise<ServerInfo> => ({ lan: options.lanUrls ? options.lanUrls() : null }));
 if (options.serveStatic !== false && existsSync(webDist)) {
   await app.register(fastifyStatic, { root: webDist, wildcard: false });
   app.setNotFoundHandler((_req, reply) => reply.sendFile('index.html'));

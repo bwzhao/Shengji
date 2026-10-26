@@ -3,6 +3,8 @@ import { zaofanRuleError, type RoomRules } from '@shengji/protocol';
 import type { GameClient } from '../ws.ts';
 import { Avatar } from '../avatar.tsx';
 import { RulesPicker } from '../components/RulesPicker.tsx';
+import { QrCode } from '../components/QrCode.tsx';
+import { copyText, inviteOrigin, useServerInfo } from '../serverInfo.ts';
 
 export function Lobby({ client }: { client: GameClient }) {
   const room = client.room!;
@@ -19,9 +21,12 @@ export function Lobby({ client }: { client: GameClient }) {
     setDraftRules(null);
     client.send({ t: 'setRules', rules: next });
   };
-  const shareUrl = `${location.origin}/?room=${room.code}`;
+  const info = useServerInfo();
+  const shareUrl = `${inviteOrigin(info)}/?room=${room.code}`;
+  const [copied, setCopied] = useState<boolean | null>(null);
   const copy = async () => {
-    try { await navigator.clipboard.writeText(`来打${room.game === 'doudizhu' ? '斗地主' : '找朋友'}：${shareUrl} 房间码 ${room.code}`); } catch { /* 忽略 */ }
+    setCopied(await copyText(`来打${room.game === 'doudizhu' ? '斗地主' : '找朋友'}：${shareUrl} 房间码 ${room.code}`));
+    setTimeout(() => setCopied(null), 2000);
   };
   return (
     <div className="page-bg">
@@ -29,8 +34,10 @@ export function Lobby({ client }: { client: GameClient }) {
         <div className="code-card">
           <div className="label">房间码</div>
           <div className="big-code">{room.code}</div>
+          <QrCode text={shareUrl} />
+          <div className="hint">{info?.lan ? '同一个 WiFi 下用手机相机扫码进房' : '用手机相机扫码进房'}</div>
           <div className="hint">{room.game === 'doudizhu' ? '三人斗地主' : `${room.players} 人局`} · 按座位号逆时针出牌 · 把房间码发给朋友</div>
-          <button className="ghost" onClick={copy}>复制邀请</button>
+          <button className="ghost" onClick={copy}>{copied === null ? '复制邀请' : copied ? '已复制' : '复制不了，请手动发房间码'}</button>
         </div>
         <div className="seats">
           {room.seats.map((s, i) => (
