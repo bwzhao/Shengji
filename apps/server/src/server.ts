@@ -273,10 +273,12 @@ wss.on('connection', (ws: AliveSocket) => {
         return send(ws, { t: 'rooms', rooms });
       }
       case 'createRoom': {
-        const rulesErr = msg.players !== 3 && msg.rules ? Room.rulesError(msg.players, msg.rules) : null;
+        const ddz = msg.players === 3 || msg.game === 'doudizhu';
+        if (ddz && msg.players !== 3 && msg.players !== 4) return send(ws, { t: 'error', code: 'BAD_ROOM', message: '斗地主只能三个人或四个人' });
+        const rulesErr = !ddz && msg.rules ? Room.rulesError(msg.players as 4 | 5 | 6, msg.rules) : null;
         if (rulesErr) return send(ws, { t: 'error', code: 'BAD_RULES', message: rulesErr });
         room()?.leave(token);
-        const r = registry.createRoom(token, msg.players, msg.rules);
+        const r = registry.createRoom(token, msg.players, ddz ? undefined : msg.rules, ddz ? 'doudizhu' : 'shengji');
         session.roomCode = r.code;
         registry.scheduleSave();
         r.join(token, session.name, ws);

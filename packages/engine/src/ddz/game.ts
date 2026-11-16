@@ -1,18 +1,21 @@
 /**
- * 三人斗地主的状态机。每人 17 张，留 3 张底牌给地主。
+ * 斗地主的状态机。三人一副牌，每人 17 张，留 3 张底牌；四人两副牌，每人 25 张，留 8 张底牌。都是一个地主对其余农民。
  * 叫分：从先叫的人起每人叫一次，1、2、3 分或不叫，只能比前面叫得高，叫到 3 分直接当地主；都不叫就重发。
  * 地主拿起底牌（亮给所有人看）先出。出完手牌的一方赢。
  * 计分：底分是叫的分，每个炸弹、王炸 ×2，春天（农民一张没出）、反春（地主只出了第一手）×2。
- * 地主赢两个农民各输底分×倍数，地主得两份；地主输反过来。一直打，累计积分。
+ * 地主赢每个农民各输底分×倍数，地主得农民人数那么多份；地主输反过来。一直打，累计积分。
  */
 import { findCards, makeDeck, removeCards, type Card, type CardId } from '../cards.ts';
 import { ruleError, type RuleError } from '../errors.ts';
 import { createRng } from '../rng.ts';
 import type { Seat } from '../state.ts';
-import { ddzComboFor, sortDdzHand, type DdzCombo, type DdzComboType } from './combos.ts';
+import { ddzComboFor, sortDdzHand, type DdzCombo, type DdzComboType, type DdzPlayers } from './combos.ts';
 
-export const DDZ_PLAYERS = 3;
-const HAND_SIZE = 17;
+/** 每种人数的牌：几副牌、每人几张、底牌几张 */
+export const DDZ_SETUP: Readonly<Record<DdzPlayers, { readonly decks: number; readonly hand: number; readonly bottom: number }>> = {
+  3: { decks: 1, hand: 17, bottom: 3 },
+  4: { decks: 2, hand: 25, bottom: 8 },
+};
 
 export type DdzPhase = 'bidding' | 'playing' | 'roundEnd';
 
@@ -38,11 +41,13 @@ export interface DdzRoundResult {
 
 export interface DdzState {
   readonly seed: string;
+  /** 几人斗地主；旧存档里没有，是三人 */
+  readonly players?: DdzPlayers;
   readonly round: number;
   readonly redeals: number;
   readonly phase: DdzPhase;
   readonly hands: readonly (readonly Card[])[];
-  /** 三张底牌；定了地主后公开 */
+  /** 底牌（三人 3 张、四人 8 张）；定了地主后公开 */
   readonly bottom: readonly Card[];
   /** 这一局先叫的人 */
   readonly firstBidder: Seat;
@@ -85,50 +90,57 @@ export type DdzResult =
   | { readonly ok: true; readonly state: DdzState; readonly events: DdzEvent[] }
   | { readonly ok: false; readonly error: RuleError };
 
-const next = (seat: Seat): Seat => (seat + 1) % DDZ_PLAYERS;
+/** 这一局是几人斗地主 */
+export const ddzPlayers = (s: Pick<DdzState, 'players'>): DdzPlayers => s.players ?? 3;
+const next = (s: Pick<DdzState, 'players'>, seat: Seat): Seat => (seat + 1) % ddzPlayers(s);
 const ok = (state: DdzState, events: DdzEvent[]): DdzResult => ({ ok: true, state, events });
 const fail = (code: RuleError['code'], message: string): DdzResult => ({ ok: false, error: ruleError(code, message) });
 
-/** 洗牌发牌：从先叫的人开始一人一张，最后 3 张做底牌 */
+/** 洗牌发牌：从先叫的人开始一人一张，最后几张做底牌 */
 function deal(s: DdzState): DdzState {
-  const deck = createRng(`${s.seed}/ddz/${s.round}/${s.redeals}`).shuffle(makeDeck(1));
-  const hands: Card[][] = [[], [], []];
-  for (let i = 0; i < HAND_SIZE * DDZ_PLAYERS; i++) (hands[(s.firstBidder + i) % DDZ_PLAYERS] as Card[]).push(deck[i] as Card);
+  const players = ddzPlayers(s);
+  const setup = DDZ_SETUP[players];
+  const deck = createRng(`${s.seed}/ddz/${s.round}/${s.redeals}`).shuffle(makeDeck(setup.decks));
+  const hands: Card[][] = Array.from({ length: players }, () => []);
+  for (let i = 0; i < setup.hand * players; i++) (hands[(s.firstBidder + i) % players] as Card[]).push(deck[i] as Card);
   return {
     ...s,
     phase: 'bidding',
     hands,
-    bottom: deck.slice(HAND_SIZE * DDZ_PLAYERS),
+    bottom: deck.slice(setup.hand * players),
     turn: s.firstBidder,
-    bids: [null, null, null],
+    bids: hands.map(() => null),
     landlord: null,
     bid: 0,
     lastPlay: null,
     roundPlays: [],
-    playCounts: [0, 0, 0],
+    playCounts: hands.map(() => 0),
     bombs: 0,
   };
 }
 
 /** 新开一场：先叫的人由种子随机定，之后每局轮到下一个人先叫 */
-export function createDdzGame(seed: string): DdzState {
+export function createDdzGame(seed: string, players: DdzPlayers = 3): DdzState {
+  const empty = Array.from({ length: players }, () => 0);
   const base: DdzState = {
     seed,
+    // 三人的存档和以前一样不写人数
+    ...(players === 4 ? { players } : {}),
     round: 1,
     redeals: 0,
     phase: 'bidding',
-    hands: [[], [], []],
+    hands: empty.map(() => []),
     bottom: [],
-    firstBidder: createRng(`${seed}/ddz/first`).int(DDZ_PLAYERS),
+    firstBidder: createRng(`${seed}/ddz/first`).int(players),
     turn: 0,
-    bids: [null, null, null],
+    bids: empty.map(() => null),
     landlord: null,
     bid: 0,
     lastPlay: null,
     roundPlays: [],
-    playCounts: [0, 0, 0],
+    playCounts: empty,
     bombs: 0,
-    scores: [0, 0, 0],
+    scores: empty,
     lastRound: null,
   };
   return deal(base);
@@ -153,18 +165,18 @@ function bid(s: DdzState, seat: Seat, points: number): DdzResult {
   const top = points > s.bid ? points : s.bid;
   const bidder = points > s.bid ? seat : bids.findIndex((b) => b === s.bid && b > 0);
   const st: DdzState = { ...s, bids, bid: top };
-  // 叫到 3 分，或者三个人都叫过了：最高的当地主；都不叫就重发，换下一个人先叫
+  // 叫到 3 分，或者每个人都叫过了：最高的当地主；都不叫就重发，换下一个人先叫
   if (points === 3 || bids.every((b) => b !== null)) {
     if (top === 0) {
       events.push({ type: 'redeal' });
-      return ok(deal({ ...st, redeals: s.redeals + 1, firstBidder: next(s.firstBidder) }), events);
+      return ok(deal({ ...st, redeals: s.redeals + 1, firstBidder: next(s, s.firstBidder) }), events);
     }
     const landlord = bidder as Seat;
     const hands = s.hands.map((h, i) => (i === landlord ? [...h, ...s.bottom] : h));
     events.push({ type: 'landlord', seat: landlord, bid: top, bottom: s.bottom });
     return ok({ ...st, phase: 'playing', hands, landlord, turn: landlord, lastPlay: null, roundPlays: [] }, events);
   }
-  return ok({ ...st, turn: next(seat) }, events);
+  return ok({ ...st, turn: next(s, seat) }, events);
 }
 
 function play(s: DdzState, seat: Seat, ids: readonly CardId[]): DdzResult {
@@ -174,7 +186,7 @@ function play(s: DdzState, seat: Seat, ids: readonly CardId[]): DdzResult {
   const cards = findCards(hand, ids);
   if (!cards || cards.length === 0) return fail('CARDS_NOT_IN_HAND', '出的牌不在手中');
   const lead = s.lastPlay && s.lastPlay.seat !== seat ? s.lastPlay.combo : null;
-  const combo = ddzComboFor(cards, lead);
+  const combo = ddzComboFor(cards, lead, ddzPlayers(s));
   if (!combo) return fail('INVALID_ACTION', lead ? '管不住上家的牌' : '不是能出的牌型');
   const left = removeCards(hand, cards);
   const hands = s.hands.map((h, i) => (i === seat ? left : h));
@@ -188,7 +200,7 @@ function play(s: DdzState, seat: Seat, ids: readonly CardId[]): DdzResult {
     bombs,
     lastPlay: { seat, combo },
     roundPlays: [...s.roundPlays, { seat, combo }],
-    turn: next(seat),
+    turn: next(s, seat),
   };
   if (left.length === 0) {
     const result = settle(st, seat);
@@ -202,9 +214,9 @@ function pass(s: DdzState, seat: Seat): DdzResult {
   if (s.phase !== 'playing') return fail('WRONG_PHASE', '现在不是出牌阶段');
   if (s.turn !== seat) return fail('NOT_YOUR_TURN', '还没轮到你出牌');
   if (!s.lastPlay) return fail('INVALID_ACTION', '该你先出，不能不出');
-  const to = next(seat);
+  const to = next(s, seat);
   const events: DdzEvent[] = [{ type: 'passed', seat }];
-  // 两家都不出：轮回到最后出牌的人，由他自由出牌
+  // 其余各家都不出：轮回到最后出牌的人，由他自由出牌
   if (to === s.lastPlay.seat) return ok({ ...s, turn: to, lastPlay: null, roundPlays: [] }, events);
   return ok({ ...s, turn: to, roundPlays: [...s.roundPlays, { seat, combo: null }] }, events);
 }
@@ -213,18 +225,19 @@ function pass(s: DdzState, seat: Seat): DdzResult {
 function settle(s: DdzState, winner: Seat): DdzRoundResult {
   const landlord = s.landlord as Seat;
   const landlordWon = winner === landlord;
-  const peasants = [0, 1, 2].filter((i) => i !== landlord);
+  const seats = s.hands.map((_, i) => i);
+  const peasants = seats.filter((i) => i !== landlord);
   const spring = landlordWon && peasants.every((p) => s.playCounts[p] === 0) ? 'spring'
     : !landlordWon && s.playCounts[landlord] === 1 ? 'antiSpring' : null;
   const multiple = 2 ** (s.bombs + (spring ? 1 : 0));
   const unit = s.bid * multiple;
-  const deltas = [0, 1, 2].map((i) => (i === landlord ? 2 : -1) * unit * (landlordWon ? 1 : -1));
+  const deltas = seats.map((i) => (i === landlord ? peasants.length : -1) * unit * (landlordWon ? 1 : -1));
   return { landlord, bid: s.bid, bombs: s.bombs, spring, multiple, landlordWon, deltas, hands: s.hands };
 }
 
 function nextRound(s: DdzState): DdzResult {
   if (s.phase !== 'roundEnd') return fail('WRONG_PHASE', '这一局还没打完');
-  const st = deal({ ...s, round: s.round + 1, redeals: 0, firstBidder: next(s.firstBidder) });
+  const st = deal({ ...s, round: s.round + 1, redeals: 0, firstBidder: next(s, s.firstBidder) });
   return ok(st, [{ type: 'dealt', firstBidder: st.firstBidder }]);
 }
 
@@ -236,11 +249,12 @@ export function ddzMultiple(s: Pick<DdzState, 'bombs'>): number {
 /** 某个座位能看到的信息 */
 export interface DdzView {
   readonly seat: Seat;
+  readonly players: DdzPlayers;
   readonly round: number;
   readonly phase: DdzPhase;
   readonly hand: readonly Card[];
   readonly handCounts: readonly number[];
-  /** 定了地主后公开的三张底牌；叫分时为 null */
+  /** 定了地主后公开的底牌；叫分时为 null */
   readonly bottom: readonly Card[] | null;
   readonly firstBidder: Seat;
   readonly turn: Seat;
@@ -258,6 +272,7 @@ export interface DdzView {
 export function ddzViewFor(s: DdzState, seat: Seat): DdzView {
   return {
     seat,
+    players: ddzPlayers(s),
     round: s.round,
     phase: s.phase,
     hand: sortDdzHand(s.hands[seat] ?? []),

@@ -1,8 +1,8 @@
-/** 三人斗地主的牌桌：叫分、出牌、结算。观看者跟着一个座位看，点头像换人。 */
+/** 斗地主的牌桌（三人、四人）：叫分、出牌、结算。观看者跟着一个座位看，点头像换人。 */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  DDZ_COMBO_NAME, ddzChoosePlay, ddzComboFor, ddzContextOfView, ddzFollowOptions,
-  type DdzPlay, type Seat,
+  ddzChoosePlay, ddzComboFor, ddzComboName, ddzContextOfView, ddzFollowOptions,
+  type DdzPlay, type DdzPlayers, type Seat,
 } from '@shengji/engine';
 import type { ClientMessage } from '@shengji/protocol';
 import { CardRow, CardView } from '../components/CardView.tsx';
@@ -12,15 +12,42 @@ import { sound } from '../sound.ts';
 import type { GameClient } from '../ws.ts';
 
 interface Pos { x: number; y: number }
-/** 出牌逆时针：下家在右手边，上家在左手边 */
-const SEAT_POS: readonly Pos[] = [{ x: 89, y: 40 }, { x: 11, y: 40 }];
-const PLAY_POS: readonly Pos[] = [{ x: 70, y: 44 }, { x: 30, y: 44 }];
-const ME_PLAY: Pos = { x: 50, y: 78 };
+/** 出的牌最宽占牌桌宽度的百分比；不设时按样式表的默认 */
+interface PlaySlot extends Pos { readonly maxW?: number }
+interface Layout {
+  /** 对手座位，从下家起逆时针：下家在右手边，上家在左手边，四人时对家在顶上 */
+  readonly seats: readonly Pos[];
+  readonly plays: readonly PlaySlot[];
+  readonly me: PlaySlot;
+  /** 底牌和中间的提示文字 */
+  readonly bottom: Pos;
+  readonly status: Pos;
+}
+const LAYOUT: Readonly<Record<DdzPlayers, Layout>> = {
+  3: {
+    seats: [{ x: 89, y: 40 }, { x: 11, y: 40 }],
+    plays: [{ x: 70, y: 44 }, { x: 30, y: 44 }],
+    me: { x: 50, y: 78 },
+    bottom: { x: 50, y: 12 },
+    status: { x: 50, y: 32 },
+  },
+  // 对家在顶上，出的牌在他下面；左右两家出的牌放低一点，和顶上那手、自己那手都错开（手机横屏 667×375 也不压住）。
+  // 底牌 8 张贴着左上角，提示文字放在右上角
+  4: {
+    seats: [{ x: 89, y: 45 }, { x: 50, y: 11 }, { x: 11, y: 45 }],
+    plays: [{ x: 71, y: 72, maxW: 18 }, { x: 50, y: 38, maxW: 26 }, { x: 29, y: 72, maxW: 18 }],
+    me: { x: 50, y: 80, maxW: 24 },
+    bottom: { x: 2, y: 2 },
+    status: { x: 79, y: 13 },
+  },
+};
 const pct = (p: Pos): React.CSSProperties => ({ left: `${p.x}%`, top: `${p.y}%` });
 
 export function DdzTable({ client }: { client: GameClient }) {
   const view = client.ddzView!;
   const room = client.room!;
+  const players: DdzPlayers = view.players ?? 3;
+  const layout = LAYOUT[players];
   // 观看者（没坐下）的 me 是正在看的那个座位，只能看不能操作
   const me = view.seat;
   const spectating = room.you === null;
@@ -36,8 +63,8 @@ export function DdzTable({ client }: { client: GameClient }) {
   const free = view.phase === 'playing' && (!view.lastPlay || view.lastPlay.seat === me);
   const lead = !free && view.lastPlay ? view.lastPlay.combo : null;
   const selectedCards = useMemo(() => view.hand.filter((c) => selected.includes(c.id)), [view.hand, selected]);
-  const combo = selectedCards.length > 0 ? ddzComboFor(selectedCards, lead) : null;
-  const options = useMemo(() => (myTurn && lead ? ddzFollowOptions(view.hand, lead) : []), [myTurn, lead, view.hand]);
+  const combo = selectedCards.length > 0 ? ddzComboFor(selectedCards, lead, players) : null;
+  const options = useMemo(() => (myTurn && lead ? ddzFollowOptions(view.hand, lead, players) : []), [myTurn, lead, view.hand, players]);
 
   // 手牌变了清掉失效的选择；换人出牌后提示从头开始
   useEffect(() => { setSelected((sel) => sel.filter((id) => view.hand.some((c) => c.id === id))); }, [view.hand]);
@@ -53,7 +80,7 @@ export function DdzTable({ client }: { client: GameClient }) {
         case 'redeal': texts.push('都不叫，重新发牌'); break;
         case 'landlord': texts.push(`${name(e.seat)} 当地主，底分 ${e.bid}`); sound.bark(); break;
         case 'played':
-          if (e.combo === 'bomb' || e.combo === 'rocket') { texts.push(`${name(e.seat)} ${DDZ_COMBO_NAME[e.combo]}！`); sound.bark(); } else sound.tick();
+          if (e.combo === 'bomb' || e.combo === 'rocket') { texts.push(`${name(e.seat)} ${ddzComboName(e.combo, players)}！`); sound.bark(); } else sound.tick();
           break;
         case 'roundEnd': if (e.result.landlordWon === (e.result.landlord === me)) sound.win(); break;
         default: break;
@@ -95,7 +122,7 @@ export function DdzTable({ client }: { client: GameClient }) {
     for (let i = view.roundPlays.length - 1; i >= 0; i--) if (view.roundPlays[i]!.seat === s) return view.roundPlays[i]!;
     return null;
   };
-  const opps: Seat[] = [(me + 1) % 3, (me + 2) % 3];
+  const opps: Seat[] = Array.from({ length: players - 1 }, (_, i) => (me + i + 1) % players);
 
   let status: string;
   if (view.phase === 'bidding') {
@@ -109,11 +136,11 @@ export function DdzTable({ client }: { client: GameClient }) {
 
   let playHint: string | null = null;
   if (myTurn && view.phase === 'playing' && selectedCards.length > 0) {
-    playHint = combo ? DDZ_COMBO_NAME[combo.type] : lead ? '管不住' : '不是能出的牌型';
+    playHint = combo ? ddzComboName(combo.type, players) : lead ? '管不住' : '不是能出的牌型';
   }
 
   /** 某个座位这一轮的动作：叫分时显示叫的分，出牌时显示出的牌或「不出」 */
-  const actionAt = (s: Seat, pos: Pos) => {
+  const actionAt = (s: Seat, pos: PlaySlot) => {
     if (view.phase === 'bidding') {
       const b = view.bids[s];
       if (b === null || b === undefined) return null;
@@ -122,10 +149,12 @@ export function DdzTable({ client }: { client: GameClient }) {
     const a = lastAction(s);
     if (!a) return null;
     if (!a.combo) return <div key={`a${s}`} className="ddz-act text" style={pct(pos)}>不出</div>;
+    // 四人的牌多，按座位的最大宽度压缩牌间距
+    const fit: React.CSSProperties = pos.maxW ? { ['--n' as string]: String(a.combo.cards.length), ['--maxw' as string]: `${pos.maxW}cqw` } : {};
     return (
-      <div key={`a${s}`} className="ddz-act" style={pct(pos)}>
+      <div key={`a${s}`} className={`ddz-act ${pos.maxW ? 'fit' : ''}`} style={{ ...pct(pos), ...fit }}>
         <CardRow cards={a.combo.cards} small />
-        <span className="ddz-combo">{DDZ_COMBO_NAME[a.combo.type]}</span>
+        <span className="ddz-combo">{ddzComboName(a.combo.type, players)}</span>
       </div>
     );
   };
@@ -171,9 +200,9 @@ export function DdzTable({ client }: { client: GameClient }) {
 
       <section className="felt">
         <div className="felt-ring" />
-        {/* 三张底牌：定了地主后亮给所有人 */}
-        <div className="ddz-bottom" style={pct({ x: 50, y: 12 })}>
-          {view.bottom ? <CardRow cards={view.bottom} small /> : <div className="ddz-backs"><span /><span /><span /></div>}
+        {/* 底牌：定了地主后亮给所有人 */}
+        <div className={`ddz-bottom ${players === 4 ? 'many' : ''}`} style={pct(layout.bottom)}>
+          {view.bottom ? <CardRow cards={view.bottom} small /> : <div className="ddz-backs">{Array.from({ length: players === 4 ? 8 : 3 }, (_, i) => <span key={i} />)}</div>}
         </div>
         {opps.map((s, i) => {
           const slot = room.seats[s];
@@ -183,7 +212,7 @@ export function DdzTable({ client }: { client: GameClient }) {
             <div
               key={s}
               className={`badge ${view.turn === s && view.phase !== 'roundEnd' ? 'turn' : ''} ${spectating ? 'watchable' : ''}`}
-              style={pct(SEAT_POS[i]!)}
+              style={pct(layout.seats[i]!)}
               onClick={spectating ? () => send({ t: 'watch', seat: s }) : undefined}
               title={spectating ? `看 ${name(s)} 的牌` : undefined}
             >
@@ -199,9 +228,9 @@ export function DdzTable({ client }: { client: GameClient }) {
             </div>
           );
         })}
-        {opps.map((s, i) => actionAt(s, PLAY_POS[i]!))}
-        {actionAt(me, ME_PLAY)}
-        <div className="center-msg" style={pct({ x: 50, y: 32 })}>
+        {opps.map((s, i) => actionAt(s, layout.plays[i]!))}
+        {actionAt(me, layout.me)}
+        <div className={`center-msg ${players === 4 ? 'corner' : ''}`} style={pct(layout.status)}>
           <div className={`status ${flash ? 'flash' : ''}`}>{flash ?? status}</div>
         </div>
       </section>
@@ -255,6 +284,7 @@ function DdzRoundEnd({ client }: { client: GameClient }) {
   const room = client.room!;
   const r = view.lastRound!;
   const name = (s: Seat) => room.seats[s]?.name ?? `${s + 1} 号`;
+  const seats = r.deltas.map((_, i) => i);
   const iWon = room.you !== null && (room.you === r.landlord) === r.landlordWon;
   const why = [r.bombs > 0 ? `炸弹 ${r.bombs} 个` : '', r.spring === 'spring' ? '春天' : r.spring === 'antiSpring' ? '反春' : ''].filter(Boolean).join('、');
   return (
@@ -275,7 +305,7 @@ function DdzRoundEnd({ client }: { client: GameClient }) {
         </table>
         <div className="label">得分</div>
         <div className="levels">
-          {[0, 1, 2].map((s) => {
+          {seats.map((s) => {
             const d = r.deltas[s] ?? 0;
             return (
               <div key={s} className={`lv-row ${d > 0 ? 'up' : ''}`}>
@@ -290,7 +320,7 @@ function DdzRoundEnd({ client }: { client: GameClient }) {
         {r.hands.some((h) => h.length > 0) && (
           <>
             <div className="label">剩下的牌</div>
-            {[0, 1, 2].filter((s) => (r.hands[s]?.length ?? 0) > 0).map((s) => (
+            {seats.filter((s) => (r.hands[s]?.length ?? 0) > 0).map((s) => (
               <div key={s} className="ddz-left"><span>{name(s)}</span><CardRow cards={r.hands[s]!} small /></div>
             ))}
           </>

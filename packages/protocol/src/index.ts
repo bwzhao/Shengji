@@ -2,7 +2,7 @@
 import { z } from 'zod';
 import type { Action, DdzEvent, DdzView, GameEvent, GameState, PlayerView, Seat } from '@shengji/engine';
 
-/** 玩法：升级·找朋友（4~6 人），斗地主（3 人） */
+/** 玩法：升级·找朋友（4~6 人），斗地主（3 人一副牌、4 人两副牌） */
 export type GameKind = 'shengji' | 'doudizhu';
 
 const cardIds = z.array(z.string().min(1)).min(1).max(40);
@@ -52,8 +52,11 @@ export const clientMessageSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('adminResetPassword'), username: z.string().trim().min(1).max(40) }),
   z.object({ t: z.literal('adminSetDisabled'), username: z.string().trim().min(1).max(40), disabled: z.boolean() }),
   z.object({ t: z.literal('adminRemoveAvatar'), username: z.string().trim().min(1).max(40) }),
-  /** 3 人开斗地主房间，4~6 人开升级；rules 只对升级有用，不传的按这个人数的默认 */
-  z.object({ t: z.literal('createRoom'), players: z.union([z.literal(3), z.literal(4), z.literal(5), z.literal(6)]), rules: roomRulesSchema.partial().optional() }),
+  /**
+   * 3 人开斗地主，4~6 人开升级；game 为 doudizhu 且 4 人时开四人斗地主（两副牌）。
+   * rules 只对升级有用，不传的按这个人数的默认
+   */
+  z.object({ t: z.literal('createRoom'), players: z.union([z.literal(3), z.literal(4), z.literal(5), z.literal(6)]), game: z.enum(['shengji', 'doudizhu']).optional(), rules: roomRulesSchema.partial().optional() }),
   z.object({ t: z.literal('listRooms') }),
   z.object({ t: z.literal('closeRoom'), code: z.string().trim().length(4).optional() }),
   /** watch：只观看，不接管机器人座位。开局后又没有机器人座位可接管时，不带 watch 也会进来观看 */

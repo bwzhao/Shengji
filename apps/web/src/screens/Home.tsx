@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { zaofanRuleError, type RoomRules, type ZaofanRule } from '@shengji/protocol';
+import { zaofanRuleError, type GameKind, type RoomRules, type ZaofanRule } from '@shengji/protocol';
 import type { GameClient } from '../ws.ts';
 import { buildTime } from '../pwa.ts';
 import { AccountSheet, type AccountSheetMode } from '../components/AccountSheet.tsx';
@@ -10,11 +10,13 @@ import { Latency } from '../components/Latency.tsx';
 import { useServerInfo } from '../serverInfo.ts';
 
 /** 开房可选的玩法：人数决定玩法 */
-const MODES: readonly { players: 3 | 4 | 5 | 6; label: string }[] = [
-  { players: 3, label: '斗地主' },
-  { players: 4, label: '对家升级' },
-  { players: 5, label: '找 1 个朋友' },
-  { players: 6, label: '找 2 个朋友' },
+type ModeKey = 'ddz3' | 'ddz4' | 'sj4' | 'sj5' | 'sj6';
+const MODES: readonly { key: ModeKey; players: 3 | 4 | 5 | 6; game: GameKind; label: string; hint: string }[] = [
+  { key: 'ddz3', players: 3, game: 'doudizhu', label: '斗地主', hint: '一副牌，每人 17 张，留 3 张底牌。叫 1、2、3 分抢地主，地主拿底牌先出，两个农民一伙。炸弹、王炸、春天翻倍，一直打，累计积分。' },
+  { key: 'ddz4', players: 4, game: 'doudizhu', label: '斗地主', hint: '两副牌，每人 25 张，留 8 张底牌，一个地主对三个农民。叫 1、2、3 分抢地主，地主拿底牌先出。三张只能带一对，没有四带二；炸弹 4 到 8 张，张数多的大，四个王是天王炸。炸弹、春天翻倍，一直打，累计积分。' },
+  { key: 'sj4', players: 4, game: 'shengji', label: '对家升级', hint: '两副牌，每人 25 张，底牌 8 张，40 分一级、80 分下庄，对家固定一队。从 2 打到 A，5、10、K 必打且庄上过（停在这几级时要坐庄守住才能往上升），在 A 上坐庄守住才赢。' },
+  { key: 'sj5', players: 5, game: 'shengji', label: '找 1 个朋友', hint: '三副牌，找朋友：庄家扣底后叫朋友牌，谁打出谁就是自己人。' },
+  { key: 'sj6', players: 6, game: 'shengji', label: '找 2 个朋友', hint: '三副牌，找朋友：庄家扣底后叫朋友牌，谁打出谁就是自己人。' },
 ];
 
 const RULES_KEY = 'shengji.rules';
@@ -51,18 +53,22 @@ function rulesFor(saved: SavedRules, players: 4 | 5 | 6): RoomRules {
 export function Home({ client }: { client: GameClient }) {
   const [name, setName] = useState(client.name);
   const [code, setCode] = useState(() => (new URLSearchParams(location.search).get('room') ?? '').toUpperCase().slice(0, 4));
-  const [players, setPlayers] = useState<3 | 4 | 5 | 6>(6);
+  const [modeKey, setModeKey] = useState<ModeKey>('sj6');
+  const mode = MODES.find((m) => m.key === modeKey) as (typeof MODES)[number];
+  const players = mode.players;
+  // 升级才有可选规则
+  const sjPlayers = mode.game === 'shengji' ? (players as 4 | 5 | 6) : null;
   const [sheet, setSheet] = useState<AccountSheetMode | null>(null);
   const [saved, setSaved] = useState<SavedRules>(loadRules);
   const info = useServerInfo();
-  const rules = players === 3 ? null : rulesFor(saved, players);
-  const rulesProblem = rules?.zaofan ? zaofanRuleError(rules.zaofan, players as 4 | 5 | 6) : null;
+  const rules = sjPlayers ? rulesFor(saved, sjPlayers) : null;
+  const rulesProblem = sjPlayers && rules?.zaofan ? zaofanRuleError(rules.zaofan, sjPlayers) : null;
   const changeRules = (patch: Partial<RoomRules>) => {
-    if (players === 3) return;
+    if (!sjPlayers) return;
     const next: SavedRules = {
       chaodi: patch.chaodi ?? saved.chaodi,
       guohe: patch.guohe ?? saved.guohe,
-      zaofan: patch.zaofan === undefined ? saved.zaofan : { ...saved.zaofan, [players]: patch.zaofan },
+      zaofan: patch.zaofan === undefined ? saved.zaofan : { ...saved.zaofan, [sjPlayers]: patch.zaofan },
     };
     setSaved(next);
     try { localStorage.setItem(RULES_KEY, JSON.stringify(next)); } catch { /* 忽略 */ }
@@ -140,14 +146,14 @@ export function Home({ client }: { client: GameClient }) {
             <div className="panel-title">开房</div>
             <div className="modes">
               {MODES.map((m) => (
-                <button key={m.players} className={players === m.players ? 'on' : ''} onClick={() => setPlayers(m.players)}>
+                <button key={m.key} className={modeKey === m.key ? 'on' : ''} onClick={() => setModeKey(m.key)}>
                   <b>{m.players} 人</b><span>{m.label}</span>
                 </button>
               ))}
             </div>
-            <div className="hint">{players === 3 ? '一副牌，每人 17 张，留 3 张底牌。叫 1、2、3 分抢地主，地主拿底牌先出，两个农民一伙。炸弹、王炸、春天翻倍，一直打，累计积分。' : players === 4 ? '两副牌，每人 25 张，底牌 8 张，40 分一级、80 分下庄，对家固定一队。从 2 打到 A，5、10、K 必打且庄上过（停在这几级时要坐庄守住才能往上升），在 A 上坐庄守住才赢。' : '三副牌，找朋友：庄家扣底后叫朋友牌，谁打出谁就是自己人。'}</div>
-            {players !== 3 && rules && <RulesPicker players={players} rules={rules} onChange={changeRules} />}
-            <button className="primary" disabled={!ready || Boolean(rulesProblem)} onClick={() => { ensureName(); setTimeout(() => client.send({ t: 'createRoom', players, ...(rules ? { rules } : {}) }), 50); }}>
+            <div className="hint">{mode.hint}</div>
+            {sjPlayers && rules && <RulesPicker players={sjPlayers} rules={rules} onChange={changeRules} />}
+            <button className="primary" disabled={!ready || Boolean(rulesProblem)} onClick={() => { ensureName(); setTimeout(() => client.send({ t: 'createRoom', players, game: mode.game, ...(rules ? { rules } : {}) }), 50); }}>
               创建房间
             </button>
           </div>

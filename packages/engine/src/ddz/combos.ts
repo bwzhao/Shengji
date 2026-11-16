@@ -1,7 +1,11 @@
 /**
- * 斗地主牌型（GitHub：三人斗地主模式）。一副牌 54 张，点数从小到大 3 … K、A、2、小王、大王。
- * 牌型：单张、对子、三张、三带一、三带一对、顺子（5 张起）、连对（3 对起）、飞机（2 个三张起，可以带同样多的单张或对子）、
- * 四带二（两张单或两对）、炸弹、王炸。顺子、连对、飞机最大到 A，不能有 2 和王。
+ * 斗地主牌型。点数从小到大 3 … K、A、2、小王、大王。顺子（5 张起）、连对（3 对起）、飞机（2 个三张起）最大到 A，不能有 2 和王。
+ *
+ * 三人（一副牌 54 张）：单张、对子、三张、三带一、三带一对、顺子、连对、飞机（可以带同样多的单张或对子）、
+ * 四带二（两张单或两对）、炸弹（四张）、王炸（大小王）。
+ *
+ * 四人（两副牌 108 张）：三张只能带一对、飞机只能带对子，没有三带一、飞机带单、四带二；
+ * 炸弹 4 到 8 张，张数多的大，同张数比点数；四个王（两大两小）是天王炸，最大。
  */
 import { BIG_JOKER, type Card } from '../cards.ts';
 
@@ -28,6 +32,9 @@ export function ddzRankName(rank: number): string {
 /** 顺子、连对、飞机最大到 A */
 const CHAIN_MAX = 14;
 
+/** 几人斗地主：三人一副牌，四人两副牌，牌型规则不同 */
+export type DdzPlayers = 3 | 4;
+
 export type DdzComboType =
   | 'single' | 'pair' | 'triple' | 'triple1' | 'triple2'
   | 'straight' | 'pairStraight' | 'plane' | 'plane1' | 'plane2'
@@ -39,11 +46,19 @@ export const DDZ_COMBO_NAME: Readonly<Record<DdzComboType, string>> = {
   four2: '四带二', four22: '四带两对', bomb: '炸弹', rocket: '王炸',
 };
 
+/** 牌型的名字；四人的王炸是四个王，叫天王炸 */
+export function ddzComboName(type: DdzComboType, players: DdzPlayers = 3): string {
+  return type === 'rocket' && players === 4 ? '天王炸' : DDZ_COMBO_NAME[type];
+}
+
+/** 四人斗地主没有的牌型 */
+const NOT_IN_FOUR: ReadonlySet<DdzComboType> = new Set(['triple1', 'plane1', 'four2', 'four22']);
+
 export interface DdzCombo {
   readonly type: DdzComboType;
   /** 比大小用的点数：主体的点数，顺子、连对、飞机取最大的一节 */
   readonly rank: number;
-  /** 连着的节数：顺子的张数、连对的对数、飞机的三张数；其余为 1 */
+  /** 连着的节数：顺子的张数、连对的对数、飞机的三张数；炸弹是张数；其余为 1 */
   readonly length: number;
   readonly cards: readonly Card[];
 }
@@ -67,16 +82,20 @@ function groupByRank(cards: readonly Card[]): Map<number, Card[]> {
  * 这些牌能算哪些牌型（可能不止一种，比如 333444555666 是四连飞机，也是三连飞机带三张单）。
  * 按首出的优先顺序排好，不成牌型返回空数组。
  */
-export function classifyDdz(cards: readonly Card[]): DdzCombo[] {
+export function classifyDdz(cards: readonly Card[], players: DdzPlayers = 3): DdzCombo[] {
   const n = cards.length;
   if (n === 0) return [];
+  const four = players === 4;
   const groups = groupByRank(cards);
   const ranks = [...groups.keys()].sort((a, b) => a - b);
   const cnt = (r: number) => groups.get(r)?.length ?? 0;
   const out: DdzCombo[] = [];
-  const add = (type: DdzComboType, rank: number, length: number) => out.push({ type, rank, length, cards });
+  const add = (type: DdzComboType, rank: number, length: number) => {
+    if (!four || !NOT_IN_FOUR.has(type)) out.push({ type, rank, length, cards });
+  };
 
-  if (n === 2 && ranks.length === 2 && ranks[0] === 16 && ranks[1] === 17) {
+  const jokers = ranks.length === 2 && ranks[0] === 16 && ranks[1] === 17;
+  if (jokers && (four ? n === 4 && cnt(16) === 2 : n === 2)) {
     add('rocket', 17, 1);
     return out;
   }
@@ -85,7 +104,7 @@ export function classifyDdz(cards: readonly Card[]): DdzCombo[] {
     if (n === 1) add('single', r, 1);
     else if (n === 2) add('pair', r, 1);
     else if (n === 3) add('triple', r, 1);
-    else if (n === 4) add('bomb', r, 1);
+    else if (n === 4 || (four && n <= 8 && r < 16)) add('bomb', r, n);
     return out;
   }
   if (n === 4) {
@@ -126,11 +145,14 @@ export function classifyDdz(cards: readonly Card[]): DdzCombo[] {
   return out.sort((a, b) => PRIORITY.indexOf(a.type) - PRIORITY.indexOf(b.type) || b.length - a.length || b.rank - a.rank);
 }
 
-/** c 能不能管住 lead */
+/** c 能不能管住 lead；炸弹张数多的大，同张数比点数 */
 export function ddzBeats(c: DdzCombo, lead: DdzCombo): boolean {
   if (lead.type === 'rocket') return false;
   if (c.type === 'rocket') return true;
-  if (c.type === 'bomb') return lead.type !== 'bomb' || c.rank > lead.rank;
+  if (c.type === 'bomb') {
+    if (lead.type !== 'bomb') return true;
+    return c.cards.length > lead.cards.length || (c.cards.length === lead.cards.length && c.rank > lead.rank);
+  }
   if (lead.type === 'bomb') return false;
   return c.type === lead.type && c.length === lead.length && c.cards.length === lead.cards.length && c.rank > lead.rank;
 }
@@ -139,8 +161,8 @@ export function ddzBeats(c: DdzCombo, lead: DdzCombo): boolean {
  * 打出 cards 时按哪种牌型算：首出（lead 为 null）按优先顺序取第一种；跟牌取能管住上家的那一种。
  * 不成牌型或管不住返回 null。
  */
-export function ddzComboFor(cards: readonly Card[], lead: DdzCombo | null): DdzCombo | null {
-  const all = classifyDdz(cards);
+export function ddzComboFor(cards: readonly Card[], lead: DdzCombo | null, players: DdzPlayers = 3): DdzCombo | null {
+  const all = classifyDdz(cards, players);
   if (!lead) return all[0] ?? null;
   return all.find((c) => ddzBeats(c, lead)) ?? null;
 }
@@ -153,8 +175,8 @@ export function sortDdzHand(cards: readonly Card[]): Card[] {
 
 /** 带牌：从不在 exclude 里的点数中挑最小的 k 张单牌（先挑单张，再拆对子、三张，最后才拆炸弹） */
 function smallestSingles(groups: Map<number, Card[]>, exclude: ReadonlySet<number>, k: number): Card[] | null {
-  const ranks = [...groups.keys()].filter((r) => !exclude.has(r));
-  const order = [1, 2, 3, 4].flatMap((size) => ranks.filter((r) => (groups.get(r) as Card[]).length === size).sort((a, b) => a - b));
+  const size = (r: number) => (groups.get(r) as Card[]).length;
+  const order = [...groups.keys()].filter((r) => !exclude.has(r)).sort((a, b) => size(a) - size(b) || a - b);
   const out: Card[] = [];
   for (const r of order) {
     for (const c of groups.get(r) as Card[]) {
@@ -167,8 +189,8 @@ function smallestSingles(groups: Map<number, Card[]>, exclude: ReadonlySet<numbe
 
 /** 带牌：从不在 exclude 里的点数中挑最小的 k 对（先挑对子，再拆三张，最后才拆炸弹），每对点数不同 */
 function smallestPairs(groups: Map<number, Card[]>, exclude: ReadonlySet<number>, k: number): Card[] | null {
-  const ranks = [...groups.keys()].filter((r) => !exclude.has(r) && (groups.get(r) as Card[]).length >= 2);
-  const order = [2, 3, 4].flatMap((size) => ranks.filter((r) => (groups.get(r) as Card[]).length === size).sort((a, b) => a - b));
+  const size = (r: number) => (groups.get(r) as Card[]).length;
+  const order = [...groups.keys()].filter((r) => !exclude.has(r) && size(r) >= 2).sort((a, b) => size(a) - size(b) || a - b);
   if (order.length < k) return null;
   return order.slice(0, k).flatMap((r) => (groups.get(r) as Card[]).slice(0, 2));
 }
@@ -188,9 +210,23 @@ function make(type: DdzComboType, rank: number, length: number, cards: readonly 
   return { type, rank, length, cards };
 }
 
+/** 手里所有的炸弹和王炸，从小到大；四人的炸弹同一个点数可以拆成不同张数 */
+function bombOptions(groups: Map<number, Card[]>, players: DdzPlayers): DdzCombo[] {
+  const out: DdzCombo[] = [];
+  const cnt = (r: number) => groups.get(r)?.length ?? 0;
+  const ranks = [...groups.keys()].filter((r) => r < 16).sort((a, b) => a - b);
+  const maxSize = players === 4 ? 8 : 4;
+  for (let size = 4; size <= maxSize; size++) {
+    for (const r of ranks) if (cnt(r) >= size && (players === 4 || cnt(r) === 4)) out.push(make('bomb', r, size, (groups.get(r) as Card[]).slice(0, size)));
+  }
+  const pairs = players === 4 ? 2 : 1;
+  if (cnt(16) >= pairs && cnt(17) >= pairs) out.push(make('rocket', 17, 1, [...(groups.get(16) as Card[]).slice(0, pairs), ...(groups.get(17) as Card[]).slice(0, pairs)]));
+  return out;
+}
+
 /**
  * 手里所有能出的、某一种牌型和长度的出法（每个点数一种，带牌挑最小的），点数从小到大。
- * minRank 以上（不含）才算。
+ * minRank 以上（不含）才算。炸弹和王炸另见 bombOptions。
  */
 function optionsOfType(groups: Map<number, Card[]>, type: DdzComboType, length: number, minRank: number): DdzCombo[] {
   const out: DdzCombo[] = [];
@@ -236,8 +272,9 @@ function optionsOfType(groups: Map<number, Card[]>, type: DdzComboType, length: 
         if (wings) out.push(make(type, r, 1, [...first(r, 4), ...wings]));
       }
       break;
-    case 'bomb': for (const r of ranks) if (r > minRank && cnt(r) === 4) out.push(make(type, r, 1, first(r, 4))); break;
-    case 'rocket': if (cnt(16) && cnt(17)) out.push(make(type, 17, 1, [...first(16, 1), ...first(17, 1)])); break;
+    case 'bomb':
+    case 'rocket':
+      break;
   }
   return out;
 }
@@ -246,17 +283,19 @@ function optionsOfType(groups: Map<number, Card[]>, type: DdzComboType, length: 
  * 跟牌时手里所有能管住 lead 的出法：同牌型从小到大，然后是炸弹从小到大，最后王炸。
  * 「提示」按这个顺序轮流给，机器人也从这里挑。
  */
-export function ddzFollowOptions(hand: readonly Card[], lead: DdzCombo): DdzCombo[] {
+export function ddzFollowOptions(hand: readonly Card[], lead: DdzCombo, players: DdzPlayers = 3): DdzCombo[] {
   if (lead.type === 'rocket') return [];
   const groups = groupByRank(hand);
   const out: DdzCombo[] = [];
   if (lead.type !== 'bomb') out.push(...optionsOfType(groups, lead.type, lead.length, lead.rank));
-  out.push(...optionsOfType(groups, 'bomb', 1, lead.type === 'bomb' ? lead.rank : 0));
-  out.push(...optionsOfType(groups, 'rocket', 1, 0));
+  out.push(...bombOptions(groups, players).filter((b) => ddzBeats(b, lead)));
   return out;
 }
 
 /** 首出时某种牌型的所有出法（机器人和提示用） */
-export function ddzOptionsOfType(hand: readonly Card[], type: DdzComboType, length: number): DdzCombo[] {
-  return optionsOfType(groupByRank(hand), type, length, 0);
+export function ddzOptionsOfType(hand: readonly Card[], type: DdzComboType, length: number, players: DdzPlayers = 3): DdzCombo[] {
+  const groups = groupByRank(hand);
+  if (type === 'bomb' || type === 'rocket') return bombOptions(groups, players).filter((b) => b.type === type);
+  if (players === 4 && NOT_IN_FOUR.has(type)) return [];
+  return optionsOfType(groups, type, length, 0);
 }
