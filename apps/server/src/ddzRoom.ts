@@ -1,7 +1,7 @@
-/** 斗地主的房间：三个人，驾驭斗地主状态机 + 机器人 + 广播；大厅座位管理在 BaseRoom。 */
+/** 斗地主的房间：三人一副牌或四人两副牌，驾驭斗地主状态机 + 机器人 + 广播；大厅座位管理在 BaseRoom。 */
 import {
   applyDdzAction, createDdzGame, ddzBotAction, ddzCanFollow, ddzViewFor,
-  type DdzAction, type DdzEvent, type DdzState, type Seat,
+  type DdzAction, type DdzEvent, type DdzPlayers, type DdzState, type Seat,
 } from '@shengji/engine';
 import type { RoomInfo, RoomSummary } from '@shengji/protocol';
 import { BaseRoom } from './baseRoom.ts';
@@ -18,9 +18,13 @@ export class DdzRoom extends BaseRoom {
   private nextTimer: NodeJS.Timeout | null = null;
   private readonly opts: RoomOptions;
 
-  constructor(code: string, hostToken: string, opts: RoomOptions = defaultRoomOptions) {
-    super(code, 3, hostToken);
+  constructor(code: string, hostToken: string, opts: RoomOptions = defaultRoomOptions, players: DdzPlayers = 3) {
+    super(code, players, hostToken);
     this.opts = opts;
+  }
+
+  get ddzPlayers(): DdzPlayers {
+    return this.playerCount as DdzPlayers;
   }
 
   get started(): boolean {
@@ -52,7 +56,7 @@ export class DdzRoom extends BaseRoom {
     return {
       code: this.code,
       game: 'doudizhu',
-      players: 3,
+      players: this.playerCount,
       hostToken: this.hostToken,
       seats: this.seats.map((s) => (s ? { token: s.token, isBot: s.isBot, name: s.name } : null)),
       members: [...this.members.values()].map((m) => ({ token: m.token, name: m.name })),
@@ -64,7 +68,7 @@ export class DdzRoom extends BaseRoom {
   }
 
   static fromSnapshot(snap: RoomSnapshot, opts: RoomOptions): DdzRoom {
-    const room = new DdzRoom(snap.code, snap.hostToken, opts);
+    const room = new DdzRoom(snap.code, snap.hostToken, opts, snap.players === 4 ? 4 : 3);
     snap.seats.forEach((s, i) => { room.seats[i] = s ? { token: s.token, isBot: s.isBot, name: s.name } : null; });
     for (const m of snap.members) room.members.set(m.token, { token: m.token, name: m.name, socket: null });
     room.state = snap.ddz ?? null;
@@ -79,7 +83,7 @@ export class DdzRoom extends BaseRoom {
 
   start(token: string): void {
     if (!this.canStart(token)) return;
-    this.state = createDdzGame(`${this.code}/${Date.now()}`);
+    this.state = createDdzGame(`${this.code}/${Date.now()}`, this.ddzPlayers);
     this.lastActivity = Date.now();
     this.broadcastRoom();
     this.afterChange([{ type: 'dealt', firstBidder: this.state.firstBidder }]);
@@ -177,7 +181,7 @@ export class DdzRoom extends BaseRoom {
       return;
     }
     const last = s.lastPlay;
-    if (s.phase === 'playing' && last && last.seat !== turn && !ddzCanFollow(s.hands[turn] ?? [], last.combo)) {
+    if (s.phase === 'playing' && last && last.seat !== turn && !ddzCanFollow(s.hands[turn] ?? [], last.combo, this.ddzPlayers)) {
       this.autoTimer = setTimeout(() => {
         this.autoTimer = null;
         if (this.state?.phase === 'playing' && this.state.turn === turn) this.apply({ type: 'pass', seat: turn });

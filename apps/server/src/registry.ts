@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import type { BaseRoom } from './baseRoom.ts';
 import { DdzRoom } from './ddzRoom.ts';
 import { Room, defaultRoomOptions, type RoomOptions } from './room.ts';
-import type { RoomRules } from '@shengji/protocol';
+import type { GameKind, RoomRules } from '@shengji/protocol';
 import type { Snapshot, Store } from './store.ts';
 
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ';
@@ -84,9 +84,12 @@ export class Registry {
     }
   }
 
-  /** 3 人开斗地主，4~6 人开升级；rules 是升级的可选规则（抄底、过河、造反分数线） */
-  createRoom(hostToken: string, players: 3 | 4 | 5 | 6, rules?: Partial<RoomRules>): BaseRoom {
-    const room = players === 3 ? new DdzRoom(this.newCode(), hostToken, this.roomOptions) : new Room(this.newCode(), players, hostToken, this.roomOptions, rules);
+  /** 3 人开斗地主，4~6 人开升级，4 人也可以开斗地主（两副牌）；rules 是升级的可选规则（抄底、过河、造反分数线） */
+  createRoom(hostToken: string, players: 3 | 4 | 5 | 6, rules?: Partial<RoomRules>, game?: GameKind): BaseRoom {
+    const ddz = players === 3 || (players === 4 && game === 'doudizhu');
+    const room = ddz
+      ? new DdzRoom(this.newCode(), hostToken, this.roomOptions, players as 3 | 4)
+      : new Room(this.newCode(), players as 4 | 5 | 6, hostToken, this.roomOptions, rules);
     this.attach(room);
     this.rooms.set(room.code, room);
     this.scheduleSave();

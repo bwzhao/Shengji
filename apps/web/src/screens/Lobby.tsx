@@ -37,7 +37,7 @@ export function Lobby({ client }: { client: GameClient }) {
           <div className="big-code">{room.code}</div>
           <QrCode text={shareUrl} />
           <div className="hint">{info?.lan ? '同一个 WiFi 下用手机相机扫码进房' : '用手机相机扫码进房'}</div>
-          <div className="hint">{room.game === 'doudizhu' ? '三人斗地主' : `${room.players} 人局`} · 按座位号逆时针出牌 · 把房间码发给朋友</div>
+          <div className="hint">{room.game === 'doudizhu' ? `${room.players === 4 ? '四人斗地主（两副牌）' : '三人斗地主'}` : `${room.players} 人局`} · 按座位号逆时针出牌 · 把房间码发给朋友</div>
           <button className="ghost" onClick={copy}>{copied === null ? '复制邀请' : copied ? '已复制' : '复制不了，请手动发房间码'}</button>
         </div>
         <div className="seats">

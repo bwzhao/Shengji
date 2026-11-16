@@ -1,7 +1,7 @@
-/** 斗地主房间：机器人代打、自动「要不起」、只看得到自己的手牌、存档恢复。 */
+/** 斗地主房间：机器人代打、自动「要不起」、只看得到自己的手牌、存档恢复、四人两副牌。 */
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { WebSocket } from 'ws';
-import { applyDdzAction, createDdzGame, ddzFollowOptions, type DdzState } from '@shengji/engine';
+import { applyDdzAction, createDdzGame, ddzBotAction, ddzFollowOptions, type DdzState } from '@shengji/engine';
 import type { ServerMessage } from '@shengji/protocol';
 import { DdzRoom } from '../src/ddzRoom.ts';
 
@@ -71,5 +71,32 @@ it('存档恢复后接着打，积分保留', () => {
   const restored = DdzRoom.fromSnapshot(room.toSnapshot(), opts);
   expect(restored.state?.scores).toEqual([6, -3, -3]);
   expect(restored.seats.map((s) => s?.isBot)).toEqual([false, true, true]);
+  restored.dispose();
+});
+
+it('四人斗地主：四个座位、两副牌每人 25 张，机器人能接着打完一局，存档恢复后还是四人', () => {
+  room = new DdzRoom('FOUR', 'h0', opts, 4);
+  const inbox: ServerMessage[] = [];
+  room.join('h0', '玩家', fakeSocket(inbox));
+  room.sit('h0', 0);
+  for (const seat of [1, 2, 3]) room.addBot('h0', seat);
+  room.start('h0');
+  expect(room.info('h0')).toMatchObject({ game: 'doudizhu', players: 4 });
+  const st = lastState(inbox);
+  expect(st.view.players).toBe(4);
+  expect(st.view.hand.length).toBe(25);
+  expect(st.view.handCounts).toEqual([25, 25, 25, 25]);
+  // 真人那个座位也照机器人的打法出，看能不能把一局打完
+  for (let i = 0; i < 2000 && room.state?.phase !== 'roundEnd'; i++) {
+    const s = room.state!;
+    const mine = s.turn === 0 ? ddzBotAction(s, 0) : null;
+    if (mine) room.act('h0', mine);
+    else vi.advanceTimersByTime(500);
+  }
+  expect(room.state?.phase).toBe('roundEnd');
+  expect(room.state!.scores.reduce((a, b) => a + b, 0)).toBe(0);
+  const restored = DdzRoom.fromSnapshot(room.toSnapshot(), opts);
+  expect(restored.playerCount).toBe(4);
+  expect(restored.state?.players).toBe(4);
   restored.dispose();
 });
